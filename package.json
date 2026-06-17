@@ -1,0 +1,70 @@
+{
+  "name": "@echospecter/proxy-gateway",
+  "version": "0.1.0",
+  "description": "Policy-driven proxy gateway for routing, transforming, and observing outbound HTTP requests through pluggable adapters.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=20.19.0",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "clean": "rimraf dist coverage",
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.cjs",
+    "test:coverage": "npm run build && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.cjs --coverage",
+    "pack:check": "npm pack --dry-run",
+    "prepublishOnly": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run pack:check"
+  },
+  "author": "Mikhail Filchushkin <spectralane@pm.me>",
+  "license": "MIT",
+  "homepage": "https://github.com/Dotcommando/proxy-gateway#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dotcommando/proxy-gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dotcommando/proxy-gateway/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "@types/node": "25.9.3",
+    "@typescript-eslint/eslint-plugin": "8.61.1",
+    "@typescript-eslint/parser": "8.61.1",
+    "eslint": "10.5.0",
+    "eslint-plugin-simple-import-sort": "13.0.0",
+    "prettier": "3.8.4",
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3"
+  }
+}
