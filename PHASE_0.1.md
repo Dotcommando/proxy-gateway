@@ -13,9 +13,10 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/adapters/inbound`
 - `src/adapters/outbound`
 - `src/app`
+- `src/app/use-cases`
 - `src/domain`
 
-Use-cases belong in `src/app`. `src/domain` is for provider-agnostic models, value objects, classification types, route models, matching primitives, and pure rules.
+Use-cases belong in `src/app/use-cases`. `src/domain` is for provider-agnostic models, value objects, classification types, route models, matching primitives, and pure rules.
 
 ## Completion Criteria
 
