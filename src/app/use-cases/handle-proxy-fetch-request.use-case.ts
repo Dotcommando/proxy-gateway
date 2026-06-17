@@ -6,14 +6,8 @@ import type {
   GatewayTargetRequest,
   GatewayTargetResponse,
   ProxyAttemptResult,
-  ProxyProviderInstance,
-  TargetTransportPort,
 } from '../../ports/outbound';
-
-export interface ProxyGatewayOptions {
-  providers: ProxyProviderInstance[];
-  transport?: TargetTransportPort;
-}
+import type { ProxyGatewayOptions } from '../types';
 
 interface ParsedProxyFetchRequest {
   target: GatewayTargetRequest;
@@ -25,11 +19,7 @@ interface ServiceError {
   message: string;
 }
 
-export function createProxyGateway(options: ProxyGatewayOptions): ProxyGateway {
-  return new HandleProxyFetchRequestUseCase(options);
-}
-
-class HandleProxyFetchRequestUseCase implements ProxyGateway {
+export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #options: ProxyGatewayOptions;
 
   constructor(options: ProxyGatewayOptions) {

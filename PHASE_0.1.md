@@ -13,6 +13,7 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/adapters/inbound`
 - `src/adapters/outbound`
 - `src/app`
+- `src/app/types`
 - `src/app/use-cases`
 - `src/domain`
 

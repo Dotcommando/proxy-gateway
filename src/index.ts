@@ -1,4 +1,5 @@
-export { createProxyGateway, type ProxyGatewayOptions } from './app/use-cases/handle-proxy-fetch-request.use-case';
+export { createProxyGateway } from './app/create-proxy-gateway';
+export type { ProxyGatewayOptions } from './app/types';
 export type { ProxyGateway } from './ports/inbound';
 export type {
   DirectRoute,
