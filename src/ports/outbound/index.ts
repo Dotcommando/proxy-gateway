@@ -2,6 +2,7 @@ export interface GatewayExecutionContext {
   tenantId?: string;
   useCase?: string;
   flowKey?: string;
+  consistency?: string;
   routeKey?: string;
   marketCountry?: string;
   metadata?: Record<string, unknown>;

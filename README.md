@@ -177,18 +177,51 @@ The primary integration point is `ProxyGateway.handle(request)`. Framework-speci
 
 The gateway accepts the `proxy-fetch.v1` formats produced by `@echospecter/proxy-fetch`:
 
-- JSON envelope with `body: null`;
-- JSON envelope with `body.kind: "text"`;
-- JSON envelope with `body.kind: "base64"`;
-- `multipart/form-data` with `meta` and raw binary `body` parts.
+- JSON envelope with `request.body: null`;
+- JSON envelope with `request.body.kind: "text"`;
+- JSON envelope with `request.body.kind: "base64"` and `request.body.data`;
+- `multipart/form-data` with part `meta` and raw binary part `body`.
+
+These wire formats cover the Fetch inputs accepted by `@echospecter/proxy-fetch`, including string, `URLSearchParams`, `Blob`, `ArrayBuffer`, typed arrays, `FormData`, `ReadableStream` with `duplex: "half"`, and existing `Request` objects. The gateway validates the serialized service request; it does not receive those client-side JavaScript body objects directly.
+
+The JSON request envelope uses `request`, not `target`:
+
+```json
+{
+  "version": "proxy-fetch.v1",
+  "request": {
+    "url": "https://api.example.com",
+    "method": "GET",
+    "headers": [],
+    "body": null
+  },
+  "options": {
+    "timeoutMs": 360000
+  },
+  "context": {}
+}
+```
+
+For multipart requests, `meta.request.body` references the raw binary part:
+
+```json
+{
+  "kind": "binary",
+  "partName": "body"
+}
+```
 
 The gateway returns `proxy-fetch.v1` service responses as:
 
-- JSON envelope with text body;
-- JSON envelope with null body;
-- JSON envelope with base64 body;
-- `multipart/form-data` response with `meta` and raw binary `body` parts;
+- JSON envelope with text response body;
+- JSON envelope with null response body;
+- JSON envelope with base64 response body using `body.data`;
+- `multipart/form-data` response with part `meta` and raw binary part `body`;
 - service error envelope with `ok: false`.
+
+Successful service execution returns `ok: true` even for target HTTP errors. Response envelopes must preserve `url`, `status`, `statusText`, `redirected`, `type`, `headers`, and `body` where applicable.
+
+Null-body statuses `204`, `205`, and `304` must preserve native null-body semantics. Special response types `error`, `opaque`, and `opaqueredirect` use `status: 0`, empty `statusText`, no headers, and `body: null`.
 
 Fetch metadata serialized by `@echospecter/proxy-fetch` is preserved where applicable:
 

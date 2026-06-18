@@ -1,6 +1,6 @@
 export { createProxyGateway } from './app/create-proxy-gateway';
-export type { ProxyGatewayOptions } from './app/types';
-export { RESPONSE_CODE, WIRE_PROTOCOL_VERSION } from './constants';
+export type { BodyBufferingPolicy, ProxyGatewayOptions } from './app/types';
+export * from './constants';
 export type { ProxyGateway } from './ports/inbound';
 export type {
   DirectRoute,

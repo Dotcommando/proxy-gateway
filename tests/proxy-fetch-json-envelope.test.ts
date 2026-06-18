@@ -32,6 +32,7 @@ describe('ProxyFetchJsonEnvelopeParser', () => {
           },
         },
         context: {
+          consistency: 'same-session',
           flowKey: 'flow-a',
           marketCountry: 'GB',
           metadata: {
@@ -46,6 +47,7 @@ describe('ProxyFetchJsonEnvelopeParser', () => {
 
     expect(parsed).toEqual({
       context: {
+        consistency: 'same-session',
         flowKey: 'flow-a',
         marketCountry: 'GB',
         metadata: {

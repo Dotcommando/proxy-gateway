@@ -13,6 +13,9 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/adapters/inbound`
 - `src/adapters/outbound`
 - `src/app`
+- `src/app/buffering`
+- `src/app/envelopes`
+- `src/app/normalization`
 - `src/app/types`
 - `src/app/use-cases`
 - `src/domain`
@@ -27,6 +30,7 @@ Use-cases belong in `src/app/use-cases`. `src/domain` is for provider-agnostic m
 - `npm run pack:check` passes.
 - The package root exports the documented v0.1 API.
 - The test suite covers the user-visible v0.1 behaviors described in `README.md`.
+- The service wire contract matches `@echospecter/proxy-fetch` exactly for v0.1 request/response envelope shapes.
 
 ## 1. Test Harness and Package Entrypoint - Done
 
@@ -40,7 +44,7 @@ Red:
 Green:
 - Add `src/index.ts`.
 - Export `createProxyGateway` and the minimum public contracts needed by the test.
-- Add a minimal `ProxyGatewayService` that returns controlled service errors for uncovered paths.
+- Add a minimal `HandleProxyFetchRequestUseCase` behind `createProxyGateway()` that returns controlled service errors for uncovered paths.
 
 Verify:
 - `npm test -- --runTestsByPath tests/public-api.test.ts`
@@ -76,7 +80,7 @@ Green:
 Verify:
 - Normalizer tests pass.
 
-## 4. Request and Response Body Buffer Limits
+## 4. Request and Response Body Buffer Limits - Done
 
 Red:
 - Add tests for request bytes/streams inside and above the configured limit.
@@ -91,24 +95,63 @@ Green:
 Verify:
 - Body-buffering tests pass.
 
-## 5. Provider Adapter Port and Direct Route Execution
+## 5. Proxy-Fetch Wire Contract Parity
+
+This step closes the compatibility gap between the early gateway-local test shape and the actual `@echospecter/proxy-fetch` wire contract.
+
+Already in place:
+- `src/constants.ts` contains the wire compatibility constants copied from `@echospecter/proxy-fetch` plus serializer constants needed for streaming multipart compatibility.
+- `tests/proxy-fetch-wire-compatibility.test.ts` locks exact constant values and the client-body-to-wire-format compatibility matrix.
+- `GatewayExecutionContext` includes `consistency`, and the current JSON parser preserves `context.consistency` when present.
 
 Red:
-- Add a mock provider adapter that returns a direct lease.
-- Add a mock `TargetTransportPort`.
-- Assert that `handle()` calls `acquire()`, executes the target through the transport, and calls `release()` after success.
-- Assert that `release()` is still called when transport execution fails after a lease is acquired.
-- Assert that request ids are generated through `RandomPort` or a default id generator, never hardcoded.
+- Add tests that JSON request envelopes use top-level `request`, not `target`.
+- Add tests for `request.body: null`, `request.body.kind: "text"`, and `request.body.kind: "base64"` with field `data`.
+- Add tests that multipart `meta` uses `request.body.kind: "binary"` and `request.body.partName: "body"`.
+- Add parser/integration fixtures for every client-side body shape serialized by `@echospecter/proxy-fetch`: no body, string, `URLSearchParams`, `Blob`, `ArrayBuffer`, typed arrays, `FormData`, `ReadableStream` with `duplex: "half"`, and existing `Request` objects.
+- Add tests proving those client-side body shapes arrive as supported service wire forms only: JSON null, JSON text, JSON base64, or multipart binary.
+- Add tests for `@echospecter/proxy-fetch` text-body detection: `text/*`, `application/json`, `application/x-www-form-urlencoded`, `application/xml`, and `application/graphql` serialize as JSON text when the body type is otherwise unknown.
+- Add tests for default binary behavior: `Blob`, `ArrayBuffer`, typed arrays, `FormData`, and unknown non-text bodies use multipart by default, and use JSON base64 only when `binaryBodyTransport` is `json-base64`.
+- Add multipart streaming tests for the exact streaming shape: `multipart/form-data` content type, `proxy-fetch-stream-*` boundary prefix, `meta` JSON part first, `body` binary part second, `application/octet-stream` body part content type, and no requirement to buffer the entire incoming service request before body-limit policy is applied.
+- Add tests that `options.timeoutMs` is parsed and exposed to the gateway execution flow.
+- Add tests that service context preserves `useCase`, `flowKey`, `consistency`, and `metadata`.
+- Add tests that Fetch metadata fields are read from `request` directly and only when present in the envelope: `mode`, `credentials`, `cache`, `redirect`, `referrer`, `referrerPolicy`, `integrity`, `keepalive`, `duplex`.
+- Add response builder tests for `response.url`, `response.redirected`, `response.type`, `status`, `statusText`, `headers`, and body.
+- Add response builder tests for JSON base64 response body using `data`, not `base64`.
+- Add null-body status tests for `204`, `205`, and `304`.
+- Add special response shape tests for `type: "error"`, `type: "opaque"`, and `type: "opaqueredirect"`.
+- Add service error tests for `error.code`, `error.message`, optional `error.retryable`, and optional `error.details`.
 
 Green:
-- Add provider, lease, route, attempt, result, and transport contracts.
-- Implement the first vertical path through `AttemptExecutor` for direct routes.
-- Add deterministic request id generation through an injected `RandomPort` in tests.
+- Keep `src/constants.ts` synchronized with the compatibility constants from `@echospecter/proxy-fetch`.
+- Update JSON parser/builder and normalizer adapters to consume the actual `proxy-fetch.v1` wire shape.
+- Treat client-side Fetch body types as compatibility fixtures, not separate gateway-domain body kinds.
+- Keep internal `GatewayTargetRequest` provider-agnostic; map `request` wire data into the internal target model.
+- Preserve `WIRE_PROTOCOL_VERSION` as the shared version constant name.
+- Reject impossible or internally inconsistent service response shapes before returning them.
 
 Verify:
-- Direct route execution tests pass.
+- Wire contract parity tests pass against the documented `@echospecter/proxy-fetch` shapes.
 
-## 6. Multiple Provider Instances
+## 6. Provider Adapter Port and Direct Route Execution Hardening
+
+Red:
+- Add focused tests for behavior not fully covered by earlier vertical slices:
+  - provider `release()` is called when transport execution fails after a lease is acquired;
+  - provider `release()` receives the classified failed attempt result;
+  - missing enabled provider returns a stable service error code;
+  - missing transport returns a stable service error code;
+  - direct route execution receives the buffered/normalized target and generated request id.
+
+Green:
+- Keep provider, lease, route, attempt result, `RandomPort`, and transport contracts in outbound ports.
+- Extract direct attempt execution out of `HandleProxyFetchRequestUseCase` if the use-case starts owning too much orchestration.
+- Ensure release is best-effort but attempted for success and post-lease failure paths.
+
+Verify:
+- Direct route hardening tests pass.
+
+## 7. Multiple Provider Instances
 
 Red:
 - Add tests for multiple provider instances, including multiple instances with the same adapter kind.
@@ -123,7 +166,7 @@ Green:
 Verify:
 - Multiple-provider tests pass.
 
-## 7. Matchers
+## 8. Matchers
 
 Red:
 - Add matcher tests for exact host, suffix host, glob path, declarative regexp, programmatic `RegExp`, hostname case normalization, trailing-dot normalization, and `.onion` detection.
@@ -136,7 +179,7 @@ Green:
 Verify:
 - Matcher tests pass.
 
-## 8. Route Priority and Exclude
+## 9. Route Priority and Exclude
 
 Red:
 - Add tests for priority ordering.
@@ -151,7 +194,7 @@ Green:
 Verify:
 - Route selection tests pass.
 
-## 9. Policy Pipeline Engine
+## 10. Policy Pipeline Engine
 
 Red:
 - Add tests proving phase order.
@@ -167,7 +210,7 @@ Green:
 Verify:
 - Pipeline tests pass.
 
-## 10. Execution Planner and Requirements
+## 11. Execution Planner and Requirements
 
 Red:
 - Add tests that `plan.fallback` produces ordered attempts.
@@ -183,7 +226,7 @@ Green:
 Verify:
 - Planner tests pass.
 
-## 11. Forward Proxy and SOCKS5H Route Model
+## 12. Forward Proxy and SOCKS5H Route Model
 
 Red:
 - Add tests that providers can return `forward-proxy` routes for supported protocols.
@@ -199,7 +242,7 @@ Green:
 Verify:
 - Route model tests pass.
 
-## 12. Retry Safety
+## 13. Retry Safety
 
 Red:
 - Add a test that target HTTP `500` is returned without retry by default.
@@ -216,7 +259,7 @@ Green:
 Verify:
 - Retry tests pass.
 
-## 13. Result Classification
+## 14. Result Classification
 
 Red:
 - Add classification tests for target HTTP status, target network error, target timeout, proxy auth error, proxy connection error, proxy timeout, gateway timeout, caller abort, policy rejection, and unsupported route.
@@ -229,7 +272,7 @@ Green:
 Verify:
 - Classifier tests pass.
 
-## 14. Total Timeout, Attempt Timeout, and Abort
+## 15. Total Timeout, Attempt Timeout, and Abort
 
 Red:
 - Add a test that total timeout cancels the active attempt and prevents fallback.
@@ -246,7 +289,7 @@ Green:
 Verify:
 - Timeout and abort tests pass.
 
-## 15. Target Access Guard
+## 16. Target Access Guard
 
 Red:
 - Add default-deny tests for unsupported schemes, localhost, loopback IPs, private IP ranges, link-local addresses, and redirect-to-denied-target cases.
@@ -260,7 +303,7 @@ Green:
 Verify:
 - Access guard tests pass.
 
-## 16. Redaction
+## 17. Redaction
 
 Red:
 - Add tests for redacting sensitive headers, sensitive query parameters, and route credentials.
@@ -273,11 +316,12 @@ Green:
 Verify:
 - Redaction tests pass.
 
-## 17. Multipart Request Parser and Response Builder
+## 18. Multipart Request Parser and Response Builder
 
 Red:
 - Add multipart request tests for `meta` JSON part, raw binary `body` part, missing required parts, byte-preserving binary round trip, and body-size enforcement.
 - Add multipart response builder tests for meta/body output.
+- Reuse the exact `request.body.kind: "binary"` / `response.body.kind: "binary"` meta shape from step 5.
 
 Green:
 - Implement multipart parsing for the service contract.
@@ -287,20 +331,20 @@ Green:
 Verify:
 - Multipart tests pass.
 
-## 18. Full Direct-Route Gateway Flow
+## 19. Full Direct-Route Gateway Flow
 
 Red:
 - Add integration tests that cover parse, normalize, match, plan, acquire, execute, classify, and build response.
 - Cover text, binary/base64, null-body statuses, and target HTTP error statuses.
 
 Green:
-- Wire parser, normalizer, access guard, pipeline/planner, attempt executor, retry decider, classifier, and builder inside `ProxyGatewayService`.
+- Wire parser, normalizer, access guard, pipeline/planner, attempt executor, retry decider, classifier, and builder through `HandleProxyFetchRequestUseCase` and extracted app collaborators.
 - Remove temporary `NOT_IMPLEMENTED` paths for covered v0.1 behavior.
 
 Verify:
 - Direct-route integration tests pass.
 
-## 19. Thin Wrapper Contract Suite
+## 20. Thin Wrapper Contract Suite
 
 Red:
 - Add a shared adapter contract suite.
@@ -316,7 +360,7 @@ Green:
 Verify:
 - Wrapper contract tests pass.
 
-## 20. Public Exports and Packaging Checks
+## 21. Public Exports and Packaging Checks
 
 Red:
 - Add public export tests for documented v0.1 contracts.

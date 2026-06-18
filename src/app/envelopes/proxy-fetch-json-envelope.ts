@@ -96,6 +96,9 @@ function normalizeContext(value: unknown): GatewayExecutionContext {
   if (typeof value.flowKey === 'string') {
     context.flowKey = value.flowKey;
   }
+  if (typeof value.consistency === 'string') {
+    context.consistency = value.consistency;
+  }
   if (typeof value.routeKey === 'string') {
     context.routeKey = value.routeKey;
   }
