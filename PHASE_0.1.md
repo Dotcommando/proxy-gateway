@@ -130,7 +130,13 @@ Green:
 Verify:
 - JSON wire contract parity tests pass against the documented `@echospecter/proxy-fetch` shapes.
 
-## 6. Provider Adapter Port and Direct Route Execution Hardening
+## 6. Provider Adapter Port and Direct Route Execution Hardening - Done
+
+Implemented:
+- Added focused hardening tests for post-lease transport failure, best-effort release, missing provider, missing transport, generated request id, and buffered normalized target forwarding.
+- Added stable `TARGET_TRANSPORT_ERROR` service code for post-lease target transport failures.
+- Ensured provider `release()` is called with a failed `ProxyAttemptResult` when transport execution fails after a lease is acquired.
+- Ensured provider `release()` remains best-effort and does not mask successful target responses.
 
 Red:
 - Add focused tests for behavior not fully covered by earlier vertical slices:
@@ -260,6 +266,7 @@ Verify:
 
 Red:
 - Add classification tests for target HTTP status, target network error, target timeout, proxy auth error, proxy connection error, proxy timeout, gateway timeout, caller abort, policy rejection, and unsupported route.
+- Add tests that replace the step 6 provisional `TARGET_TRANSPORT_ERROR` / `gateway-error` handling with the final result taxonomy where possible, without regressing best-effort `release()` behavior.
 
 Green:
 - Implement `ResultClassifier`.

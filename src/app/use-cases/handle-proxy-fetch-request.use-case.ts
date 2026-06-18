@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 
 import { RESPONSE_CODE } from '../../constants';
 import type { ProxyGateway } from '../../ports/inbound';
-import type { ProxyAttemptResult } from '../../ports/outbound';
+import type {
+  GatewayTargetRequest,
+  GatewayTargetResponse,
+  ProxyAttemptResult,
+  ProxyLease,
+  ProxyProviderInstance,
+} from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ProxyFetchJsonEnvelopeBuilder, ProxyFetchJsonEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
 import type { ProxyGatewayOptions } from '../types';
@@ -50,26 +56,82 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         signal: request.signal,
         target,
       });
-      const targetResponse = await this.#options.transport.execute({
+      const attemptResponse = await executeDirectAttempt({
+        bodyBufferManager: this.#bodyBufferManager,
+        jsonEnvelopeBuilder: this.#jsonEnvelopeBuilder,
+        lease,
+        provider,
+        request,
         requestId,
-        route: lease.route,
-        signal: request.signal,
         target,
+        transport: this.#options.transport,
       });
-      const bufferedResponse = await this.#bodyBufferManager.bufferResponseBody(targetResponse);
-      const result: ProxyAttemptResult = {
+
+      if (attemptResponse instanceof Response) {
+        return attemptResponse;
+      }
+
+      await releaseBestEffort(provider, lease, {
         outcome: 'success',
-        response: bufferedResponse,
-      };
+        response: attemptResponse,
+      });
 
-      await provider.adapter.release?.(lease, result);
-
-      return this.#jsonEnvelopeBuilder.buildTargetResponse(bufferedResponse);
+      return this.#jsonEnvelopeBuilder.buildTargetResponse(attemptResponse);
     } catch (error) {
       return this.#jsonEnvelopeBuilder.buildServiceError(400, {
         code: RESPONSE_CODE.INVALID_PROXY_FETCH_REQUEST,
         message: error instanceof Error ? error.message : 'Invalid proxy-fetch request.',
       });
     }
+  }
+}
+
+async function executeDirectAttempt(input: {
+  bodyBufferManager: BodyBufferManager;
+  jsonEnvelopeBuilder: ProxyFetchJsonEnvelopeBuilder;
+  lease: ProxyLease;
+  provider: ProxyProviderInstance;
+  request: Request;
+  requestId: string;
+  target: GatewayTargetRequest;
+  transport: NonNullable<ProxyGatewayOptions['transport']>;
+}): Promise<GatewayTargetResponse | Response> {
+  try {
+    const targetResponse = await input.transport.execute({
+      requestId: input.requestId,
+      route: input.lease.route,
+      signal: input.request.signal,
+      target: input.target,
+    });
+
+    return await input.bodyBufferManager.bufferResponseBody(targetResponse);
+  } catch {
+    const result: ProxyAttemptResult = {
+      error: {
+        code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+        message: 'Target transport execution failed.',
+      },
+      outcome: 'gateway-error',
+    };
+
+    await releaseBestEffort(input.provider, input.lease, result);
+
+    return input.jsonEnvelopeBuilder.buildServiceError(502, {
+      code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+      message: 'Target transport execution failed.',
+      retryable: true,
+    });
+  }
+}
+
+async function releaseBestEffort(
+  provider: ProxyProviderInstance,
+  lease: ProxyLease,
+  result: ProxyAttemptResult,
+): Promise<void> {
+  try {
+    await provider.adapter.release?.(lease, result);
+  } catch {
+    // Release failures must not mask the attempt result returned to the caller.
   }
 }
