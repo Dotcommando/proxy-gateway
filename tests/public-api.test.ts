@@ -6,11 +6,13 @@ import {
   type ProxyAttemptResult,
   type ProxyProviderInstance,
   type TargetTransportPort,
+  WIRE_PROTOCOL_VERSION,
 } from '../src/index';
 
 describe('public API', () => {
   it('creates a gateway that handles a proxy-fetch.v1 JSON request through a direct provider', async () => {
     const acquiredTargets: GatewayTargetRequest[] = [];
+    const requestIds: string[] = [];
     const releasedResults: ProxyAttemptResult[] = [];
     const provider: ProxyProviderInstance = {
       id: 'direct-provider',
@@ -18,6 +20,7 @@ describe('public API', () => {
         kind: 'test-direct',
         getCapabilities: () => ({}),
         acquire: async (input) => {
+          requestIds.push(input.requestId);
           acquiredTargets.push(input.target);
 
           return {
@@ -34,6 +37,7 @@ describe('public API', () => {
     };
     const transport: TargetTransportPort = {
       execute: async (input) => {
+        expect(input.requestId).toBe('request-id-1');
         expect(input.route).toEqual({ kind: 'direct' });
         expect(input.target.url).toBe('https://example.com/resource');
         expect(input.target.method).toBe('POST');
@@ -57,12 +61,15 @@ describe('public API', () => {
     };
     const gateway = createProxyGateway({
       providers: [provider],
+      random: {
+        createId: () => 'request-id-1',
+      },
       transport,
     });
     const response = await gateway.handle(
       new Request('https://gateway.test/proxy', {
         body: JSON.stringify({
-          version: 'proxy-fetch.v1',
+          version: WIRE_PROTOCOL_VERSION,
           target: {
             url: 'https://example.com/resource',
             method: 'POST',
@@ -92,7 +99,7 @@ describe('public API', () => {
     const envelope = await response.json();
 
     expect(envelope).toEqual({
-      version: 'proxy-fetch.v1',
+      version: WIRE_PROTOCOL_VERSION,
       ok: true,
       response: {
         status: 201,
@@ -106,6 +113,7 @@ describe('public API', () => {
     });
 
     expect(acquiredTargets).toHaveLength(1);
+    expect(requestIds).toEqual(['request-id-1']);
     expect(acquiredTargets[0]?.fetch).toEqual({ redirect: 'manual' });
     expect(releasedResults).toEqual([
       {

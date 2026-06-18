@@ -1,5 +1,6 @@
 export { createProxyGateway } from './app/create-proxy-gateway';
 export type { ProxyGatewayOptions } from './app/types';
+export { RESPONSE_CODE, WIRE_PROTOCOL_VERSION } from './constants';
 export type { ProxyGateway } from './ports/inbound';
 export type {
   DirectRoute,
@@ -16,6 +17,7 @@ export type {
   ProxyProviderCapabilities,
   ProxyProviderInstance,
   ProxyRoute,
+  RandomPort,
   TargetTransportExecuteInput,
   TargetTransportPort,
 } from './ports/outbound';

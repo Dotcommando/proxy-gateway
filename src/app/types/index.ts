@@ -1,6 +1,7 @@
-import type { ProxyProviderInstance, TargetTransportPort } from '../../ports/outbound';
+import type { ProxyProviderInstance, RandomPort, TargetTransportPort } from '../../ports/outbound';
 
 export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
+  random?: RandomPort;
   transport?: TargetTransportPort;
 }

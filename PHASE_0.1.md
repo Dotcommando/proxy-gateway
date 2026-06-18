@@ -28,7 +28,7 @@ Use-cases belong in `src/app/use-cases`. `src/domain` is for provider-agnostic m
 - The package root exports the documented v0.1 API.
 - The test suite covers the user-visible v0.1 behaviors described in `README.md`.
 
-## 1. Test Harness and Package Entrypoint
+## 1. Test Harness and Package Entrypoint - Done
 
 Red:
 - Add `tests/public-api.test.ts`.
@@ -98,10 +98,12 @@ Red:
 - Add a mock `TargetTransportPort`.
 - Assert that `handle()` calls `acquire()`, executes the target through the transport, and calls `release()` after success.
 - Assert that `release()` is still called when transport execution fails after a lease is acquired.
+- Assert that request ids are generated through `RandomPort` or a default id generator, never hardcoded.
 
 Green:
 - Add provider, lease, route, attempt, result, and transport contracts.
 - Implement the first vertical path through `AttemptExecutor` for direct routes.
+- Add deterministic request id generation through an injected `RandomPort` in tests.
 
 Verify:
 - Direct route execution tests pass.

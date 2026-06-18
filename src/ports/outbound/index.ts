@@ -102,6 +102,10 @@ export interface ProxyProviderInstance {
   metadata?: Record<string, unknown>;
 }
 
+export interface RandomPort {
+  createId(): string;
+}
+
 export interface TargetTransportExecuteInput {
   requestId: string;
   target: GatewayTargetRequest;
