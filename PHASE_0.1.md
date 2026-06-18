@@ -46,7 +46,7 @@ Verify:
 - `npm test -- --runTestsByPath tests/public-api.test.ts`
 - `npm run typecheck`
 
-## 2. JSON Request Parser and Response Builder
+## 2. JSON Request Parser and Response Builder - Done
 
 Red:
 - Add parser tests for JSON request envelopes with `body: null`, text body, base64 body, target URL, method, headers, context, and Fetch metadata.
@@ -61,7 +61,7 @@ Green:
 Verify:
 - JSON parser/builder tests pass.
 
-## 3. Target Request Normalization
+## 3. Target Request Normalization - Done
 
 Red:
 - Add tests for converting parsed envelopes into `GatewayTargetRequest`.

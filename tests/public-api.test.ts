@@ -7,7 +7,7 @@ import {
   type ProxyProviderInstance,
   type TargetTransportPort,
   WIRE_PROTOCOL_VERSION,
-} from '../src/index';
+} from '../src';
 
 describe('public API', () => {
   it('creates a gateway that handles a proxy-fetch.v1 JSON request through a direct provider', async () => {
