@@ -3,13 +3,13 @@ import type { GatewayBody, GatewayFetchMetadata, GatewayTargetRequest } from '..
 const BODY_FRAMING_HEADERS = new Set(['content-length', 'transfer-encoding']);
 
 export class GatewayRequestNormalizer {
-  normalize(targetEnvelope: Record<string, unknown>): GatewayTargetRequest {
+  normalize(requestEnvelope: Record<string, unknown>): GatewayTargetRequest {
     return {
-      body: normalizeBody(targetEnvelope.body),
-      fetch: normalizeFetchMetadata(targetEnvelope.fetch),
-      headers: normalizeHeaders(targetEnvelope.headers),
-      method: typeof targetEnvelope.method === 'string' ? targetEnvelope.method : 'GET',
-      url: readRequiredString(targetEnvelope, 'url', 'target.url'),
+      body: normalizeBody(requestEnvelope.body),
+      fetch: normalizeFetchMetadata(requestEnvelope),
+      headers: normalizeHeaders(requestEnvelope.headers),
+      method: typeof requestEnvelope.method === 'string' ? requestEnvelope.method : 'GET',
+      url: readRequiredString(requestEnvelope, 'url', 'request.url'),
     };
   }
 }
@@ -32,7 +32,7 @@ function normalizeBody(value: unknown): GatewayBody {
     };
   }
   if (!isRecord(value)) {
-    throw new Error('Expected target body to be null or an object.');
+    throw new Error('Expected request body to be null or an object.');
   }
   if (value.kind === 'text' && typeof value.text === 'string') {
     return {
@@ -43,18 +43,21 @@ function normalizeBody(value: unknown): GatewayBody {
   }
   if (value.kind === 'base64') {
     return {
-      bytes: decodeBase64Body(value.base64),
+      bytes: decodeBase64Body(value.data),
       kind: 'bytes',
       replayability: 'replayable',
     };
   }
+  if (value.kind === 'binary') {
+    throw new Error('Binary request bodies must use multipart service transport.');
+  }
 
-  throw new Error('Unsupported target body kind.');
+  throw new Error('Unsupported request body kind.');
 }
 
 function decodeBase64Body(value: unknown): Uint8Array {
   if (typeof value !== 'string' || !isValidBase64(value)) {
-    throw new Error('Expected target body base64 to be valid base64.');
+    throw new Error('Expected request body data to be valid base64.');
   }
 
   return new Uint8Array(Buffer.from(value, 'base64'));
@@ -65,7 +68,7 @@ function normalizeHeaders(value: unknown): Array<[string, string]> {
     return [];
   }
   if (!Array.isArray(value)) {
-    throw new Error('Expected target headers to be an array.');
+    throw new Error('Expected request headers to be an array.');
   }
 
   const headers: Array<[string, string]> = [];
@@ -77,7 +80,7 @@ function normalizeHeaders(value: unknown): Array<[string, string]> {
       || typeof entry[0] !== 'string'
       || typeof entry[1] !== 'string'
     ) {
-      throw new Error('Expected each target header to be a string pair.');
+      throw new Error('Expected each request header to be a string pair.');
     }
 
     const name = entry[0];

@@ -95,24 +95,21 @@ Green:
 Verify:
 - Body-buffering tests pass.
 
-## 5. Proxy-Fetch Wire Contract Parity
+## 5. Proxy-Fetch JSON Wire Contract Parity - Done
 
-This step closes the compatibility gap between the early gateway-local test shape and the actual `@echospecter/proxy-fetch` wire contract.
+This step closes the JSON-envelope compatibility gap between the early gateway-local test shape and the actual `@echospecter/proxy-fetch` wire contract. Multipart parsing and multipart response building stay in step 18.
 
-Already in place:
+Implemented:
 - `src/constants.ts` contains the wire compatibility constants copied from `@echospecter/proxy-fetch` plus serializer constants needed for streaming multipart compatibility.
 - `tests/proxy-fetch-wire-compatibility.test.ts` locks exact constant values and the client-body-to-wire-format compatibility matrix.
 - `GatewayExecutionContext` includes `consistency`, and the current JSON parser preserves `context.consistency` when present.
+- JSON request parsing uses top-level `request`, reads `options.timeoutMs`, reads Fetch metadata directly from `request`, reads base64 bodies from `request.body.data`, and rejects multipart binary body references on JSON transport.
+- JSON response building emits `response.url`, `response.redirected`, `response.type`, `status`, `statusText`, `headers`, and `body`; uses base64 `body.data`; preserves null-body status semantics; and rejects invalid special response combinations.
 
 Red:
 - Add tests that JSON request envelopes use top-level `request`, not `target`.
 - Add tests for `request.body: null`, `request.body.kind: "text"`, and `request.body.kind: "base64"` with field `data`.
-- Add tests that multipart `meta` uses `request.body.kind: "binary"` and `request.body.partName: "body"`.
-- Add parser/integration fixtures for every client-side body shape serialized by `@echospecter/proxy-fetch`: no body, string, `URLSearchParams`, `Blob`, `ArrayBuffer`, typed arrays, `FormData`, `ReadableStream` with `duplex: "half"`, and existing `Request` objects.
-- Add tests proving those client-side body shapes arrive as supported service wire forms only: JSON null, JSON text, JSON base64, or multipart binary.
-- Add tests for `@echospecter/proxy-fetch` text-body detection: `text/*`, `application/json`, `application/x-www-form-urlencoded`, `application/xml`, and `application/graphql` serialize as JSON text when the body type is otherwise unknown.
-- Add tests for default binary behavior: `Blob`, `ArrayBuffer`, typed arrays, `FormData`, and unknown non-text bodies use multipart by default, and use JSON base64 only when `binaryBodyTransport` is `json-base64`.
-- Add multipart streaming tests for the exact streaming shape: `multipart/form-data` content type, `proxy-fetch-stream-*` boundary prefix, `meta` JSON part first, `body` binary part second, `application/octet-stream` body part content type, and no requirement to buffer the entire incoming service request before body-limit policy is applied.
+- Add tests that `request.body.kind: "binary"` is rejected on JSON transport because it belongs to multipart service transport.
 - Add tests that `options.timeoutMs` is parsed and exposed to the gateway execution flow.
 - Add tests that service context preserves `useCase`, `flowKey`, `consistency`, and `metadata`.
 - Add tests that Fetch metadata fields are read from `request` directly and only when present in the envelope: `mode`, `credentials`, `cache`, `redirect`, `referrer`, `referrerPolicy`, `integrity`, `keepalive`, `duplex`.
@@ -131,7 +128,7 @@ Green:
 - Reject impossible or internally inconsistent service response shapes before returning them.
 
 Verify:
-- Wire contract parity tests pass against the documented `@echospecter/proxy-fetch` shapes.
+- JSON wire contract parity tests pass against the documented `@echospecter/proxy-fetch` shapes.
 
 ## 6. Provider Adapter Port and Direct Route Execution Hardening
 
@@ -321,7 +318,12 @@ Verify:
 Red:
 - Add multipart request tests for `meta` JSON part, raw binary `body` part, missing required parts, byte-preserving binary round trip, and body-size enforcement.
 - Add multipart response builder tests for meta/body output.
-- Reuse the exact `request.body.kind: "binary"` / `response.body.kind: "binary"` meta shape from step 5.
+- Add parser/integration fixtures for binary client-side body shapes serialized by `@echospecter/proxy-fetch`: `Blob`, `ArrayBuffer`, typed arrays, `FormData`, `ReadableStream` with `duplex: "half"`, existing `Request` objects with binary bodies, and unknown non-text bodies.
+- Add tests proving default binary behavior uses multipart, and JSON base64 is used only when `binaryBodyTransport` is `json-base64`.
+- Add tests that multipart `meta` uses `request.body.kind: "binary"` and `request.body.partName: "body"`.
+- Add multipart streaming tests for the exact streaming shape: `multipart/form-data` content type, `proxy-fetch-stream-*` boundary prefix, `meta` JSON part first, `body` binary part second, and `application/octet-stream` body part content type.
+- Add tests that multipart parsing does not require buffering the entire incoming service request before body-limit policy is applied.
+- Reuse the exact `request.body.kind: "binary"` / `response.body.kind: "binary"` meta shape from the `@echospecter/proxy-fetch` wire contract.
 
 Green:
 - Implement multipart parsing for the service contract.

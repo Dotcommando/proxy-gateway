@@ -1,4 +1,10 @@
-import { RESPONSE_CODE, WIRE_PROTOCOL_VERSION } from '../../constants';
+import {
+  BODY_ENCODING_BASE64,
+  BODY_KIND_BASE64,
+  BODY_KIND_TEXT,
+  RESPONSE_CODE,
+  WIRE_PROTOCOL_VERSION,
+} from '../../constants';
 import type {
   GatewayBody,
   GatewayExecutionContext,
@@ -7,14 +13,24 @@ import type {
 } from '../../ports/outbound';
 import { GatewayRequestNormalizer } from '../normalization/gateway-request-normalizer';
 
+const NULL_BODY_STATUS_CODES = new Set([204, 205, 304]);
+const SPECIAL_RESPONSE_TYPES = new Set<ResponseType>(['error', 'opaque', 'opaqueredirect']);
+
 export interface ParsedProxyFetchRequest {
   target: GatewayTargetRequest;
   context: GatewayExecutionContext;
+  options: ProxyFetchRequestOptions;
+}
+
+export interface ProxyFetchRequestOptions {
+  timeoutMs?: number;
 }
 
 export interface ServiceError {
-  code: RESPONSE_CODE;
+  code: RESPONSE_CODE | string;
+  details?: unknown;
   message: string;
+  retryable?: boolean;
 }
 
 export class ProxyFetchJsonEnvelopeParser {
@@ -27,11 +43,12 @@ export class ProxyFetchJsonEnvelopeParser {
       throw new Error('Unsupported proxy-fetch envelope version.');
     }
 
-    const targetEnvelope = readRequiredRecord(envelope, 'target');
+    const requestEnvelope = readRequiredRecord(envelope, 'request');
 
     return {
       context: normalizeContext(envelope.context),
-      target: this.#normalizer.normalize(targetEnvelope),
+      options: normalizeOptions(envelope.options),
+      target: this.#normalizer.normalize(requestEnvelope),
     };
   }
 }
@@ -40,12 +57,7 @@ export class ProxyFetchJsonEnvelopeBuilder {
   buildTargetResponse(targetResponse: GatewayTargetResponse): Response {
     return jsonResponse(200, {
       ok: true,
-      response: {
-        body: serializeBody(targetResponse.body),
-        headers: targetResponse.headers,
-        status: targetResponse.status,
-        statusText: targetResponse.statusText,
-      },
+      response: serializeTargetResponse(targetResponse),
       version: WIRE_PROTOCOL_VERSION,
     });
   }
@@ -77,6 +89,20 @@ function readRequiredRecord(source: Record<string, unknown>, key: string): Recor
   }
 
   return value;
+}
+
+function normalizeOptions(value: unknown): ProxyFetchRequestOptions {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const options: ProxyFetchRequestOptions = {};
+
+  if (typeof value.timeoutMs === 'number' && Number.isFinite(value.timeoutMs)) {
+    options.timeoutMs = value.timeoutMs;
+  }
+
+  return options;
 }
 
 function normalizeContext(value: unknown): GatewayExecutionContext {
@@ -112,20 +138,57 @@ function normalizeContext(value: unknown): GatewayExecutionContext {
   return context;
 }
 
-function serializeBody(body: GatewayBody): { base64: string; kind: 'base64' } | { kind: 'text'; text: string } | null {
+function serializeTargetResponse(targetResponse: GatewayTargetResponse): {
+  body: ReturnType<typeof serializeBody>;
+  headers: Array<[string, string]>;
+  redirected: boolean;
+  status: number;
+  statusText: string;
+  type: ResponseType;
+  url: string;
+} {
+  const type = targetResponse.type ?? 'basic';
+  const isSpecialType = SPECIAL_RESPONSE_TYPES.has(type);
+
+  if (targetResponse.status === 0 && !isSpecialType) {
+    throw new Error('Response status 0 requires a special response type.');
+  }
+  if (isSpecialType) {
+    if (
+      targetResponse.status !== 0
+      || targetResponse.statusText !== ''
+      || targetResponse.headers.length !== 0
+      || targetResponse.body.kind !== 'none'
+    ) {
+      throw new Error('Special response types require status 0, empty statusText, no headers, and null body.');
+    }
+  }
+
+  return {
+    body: NULL_BODY_STATUS_CODES.has(targetResponse.status) ? null : serializeBody(targetResponse.body),
+    headers: targetResponse.headers,
+    redirected: targetResponse.redirected ?? false,
+    status: targetResponse.status,
+    statusText: targetResponse.statusText,
+    type,
+    url: targetResponse.url ?? '',
+  };
+}
+
+function serializeBody(body: GatewayBody): { data: string; kind: typeof BODY_KIND_BASE64 } | { kind: typeof BODY_KIND_TEXT; text: string } | null {
   if (body.kind === 'none') {
     return null;
   }
   if (body.kind === 'text') {
     return {
-      kind: 'text',
+      kind: BODY_KIND_TEXT,
       text: body.text,
     };
   }
   if (body.kind === 'bytes') {
     return {
-      base64: Buffer.from(body.bytes).toString('base64'),
-      kind: 'base64',
+      data: Buffer.from(body.bytes).toString(BODY_ENCODING_BASE64),
+      kind: BODY_KIND_BASE64,
     };
   }
 

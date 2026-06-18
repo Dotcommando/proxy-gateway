@@ -40,8 +40,11 @@ export interface GatewayTargetRequest {
 }
 
 export interface GatewayTargetResponse {
+  url?: string;
   status: number;
   statusText: string;
+  redirected?: boolean;
+  type?: ResponseType;
   headers: Array<[string, string]>;
   body: GatewayBody;
 }

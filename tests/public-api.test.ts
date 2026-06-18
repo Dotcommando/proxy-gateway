@@ -48,14 +48,17 @@ describe('public API', () => {
         });
 
         return {
-          status: 201,
-          statusText: 'Created',
-          headers: [['content-type', 'text/plain']],
           body: {
             kind: 'text',
             replayability: 'replayable',
             text: 'echo:hello',
           },
+          headers: [['content-type', 'text/plain']],
+          redirected: false,
+          status: 201,
+          statusText: 'Created',
+          type: 'basic',
+          url: 'https://example.com/resource',
         };
       },
     };
@@ -70,7 +73,7 @@ describe('public API', () => {
       new Request('https://gateway.test/proxy', {
         body: JSON.stringify({
           version: WIRE_PROTOCOL_VERSION,
-          target: {
+          request: {
             url: 'https://example.com/resource',
             method: 'POST',
             headers: [['content-type', 'text/plain']],
@@ -78,9 +81,7 @@ describe('public API', () => {
               kind: 'text',
               text: 'hello',
             },
-            fetch: {
-              redirect: 'manual',
-            },
+            redirect: 'manual',
           },
           context: {
             tenantId: 'tenant-a',
@@ -102,13 +103,16 @@ describe('public API', () => {
       version: WIRE_PROTOCOL_VERSION,
       ok: true,
       response: {
-        status: 201,
-        statusText: 'Created',
-        headers: [['content-type', 'text/plain']],
         body: {
           kind: 'text',
           text: 'echo:hello',
         },
+        headers: [['content-type', 'text/plain']],
+        redirected: false,
+        status: 201,
+        statusText: 'Created',
+        type: 'basic',
+        url: 'https://example.com/resource',
       },
     });
 
@@ -119,14 +123,17 @@ describe('public API', () => {
       {
         outcome: 'success',
         response: {
-          status: 201,
-          statusText: 'Created',
-          headers: [['content-type', 'text/plain']],
           body: {
             kind: 'text',
             replayability: 'replayable',
             text: 'echo:hello',
           },
+          headers: [['content-type', 'text/plain']],
+          redirected: false,
+          status: 201,
+          statusText: 'Created',
+          type: 'basic',
+          url: 'https://example.com/resource',
         },
       },
     ]);

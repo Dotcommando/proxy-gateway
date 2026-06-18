@@ -46,7 +46,7 @@ describe('GatewayRequestNormalizer', () => {
   it('normalizes a target request with a base64 body', () => {
     const target = normalizer.normalize({
       body: {
-        base64: 'AQIDBA==',
+        data: 'AQIDBA==',
         kind: 'base64',
       },
       method: 'POST',
@@ -63,22 +63,20 @@ describe('GatewayRequestNormalizer', () => {
 
   it('preserves target headers and Fetch metadata', () => {
     const target = normalizer.normalize({
-      fetch: {
-        cache: 'reload',
-        credentials: 'include',
-        duplex: 'half',
-        integrity: 'sha256-test',
-        keepalive: true,
-        mode: 'cors',
-        redirect: 'manual',
-        referrer: 'https://referrer.example/',
-        referrerPolicy: 'strict-origin',
-      },
+      cache: 'reload',
+      credentials: 'include',
+      duplex: 'half',
       headers: [
         ['accept', 'application/json'],
         ['x-custom', 'yes'],
       ],
+      integrity: 'sha256-test',
+      keepalive: true,
       method: 'GET',
+      mode: 'cors',
+      redirect: 'manual',
+      referrer: 'https://referrer.example/',
+      referrerPolicy: 'strict-origin',
       url: 'https://example.com/metadata',
     });
 
