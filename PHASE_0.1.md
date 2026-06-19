@@ -19,6 +19,7 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/app/types`
 - `src/app/use-cases`
 - `src/domain`
+- `src/domain/matching`
 
 Use-cases belong in `src/app/use-cases`. `src/domain` is for provider-agnostic models, value objects, classification types, route models, matching primitives, and pure rules.
 
@@ -178,7 +179,14 @@ Verify:
 
 ## 8. Matchers
 
+Implemented so far:
+- Added `src/domain/matching` for pure dependency-free matching primitives instead of a generic `src/utils` bucket.
+- Added a focused glob contract test suite recreated for this package's route-matching needs, without copying third-party fixtures or keeping external test links in the repo.
+- Implemented `matchGlob()` and `hasGlobMagic()` for literal segments, `*`, `?`, full-segment `**`, character classes/ranges, negated classes, escaping, and explicit case-insensitive matching.
+- Kept brace expansion and extglob unsupported and literal.
+
 Red:
+- Keep the focused glob tests green while adding the broader route matcher surface.
 - Add matcher tests for exact host, suffix host, glob path, declarative regexp, programmatic `RegExp`, hostname case normalization, trailing-dot normalization, and `.onion` detection.
 
 Green:
