@@ -1,4 +1,4 @@
-import { PROXY_ATTEMPT_RESULT_OUTCOME } from '../../constants';
+import { PIPELINE_DECISION_KIND, PROXY_ATTEMPT_RESULT_OUTCOME } from '../../constants';
 
 export interface GatewayExecutionContext {
   tenantId?: string;
@@ -39,6 +39,143 @@ export interface GatewayTargetRequest {
   headers: Array<[string, string]>;
   body: GatewayBody;
   fetch: GatewayFetchMetadata;
+}
+
+export type ProxyRouteRequirements = Record<string, unknown>;
+
+export interface GatewayFacts {
+  client?: {
+    country?: string;
+    ip?: string;
+  };
+  custom?: Record<string, unknown>;
+  proxyExit?: {
+    asn?: number;
+    country?: string;
+    ip?: string;
+    isTor?: boolean;
+  };
+  target?: {
+    asns?: number[];
+    countries?: string[];
+    host?: string;
+    isOnion?: boolean;
+    primaryCountry?: string;
+    resolvedIps?: string[];
+  };
+}
+
+export interface ProxyProviderCandidate {
+  capabilities?: ProxyProviderCapabilities;
+  metadata?: Record<string, unknown>;
+  priority?: number;
+  providerInstanceId: string;
+  providerKind: string;
+  weight?: number;
+}
+
+export interface ProxyExecutionAttempt {
+  maxAttempts?: number;
+  metadata?: Record<string, unknown>;
+  providerInstanceId: string;
+  requirements?: ProxyRouteRequirements;
+  timeoutMs?: number;
+}
+
+export interface ProxyExecutionPlan {
+  attempts: ProxyExecutionAttempt[];
+  metadata?: Record<string, unknown>;
+  stopOnTargetHttpError?: boolean;
+  totalTimeoutMs?: number;
+}
+
+export interface GatewayEvent {
+  message?: string;
+  metadata?: Record<string, unknown>;
+  type: string;
+}
+
+export interface ProxyDecisionState {
+  candidates: ProxyProviderCandidate[];
+  context: GatewayExecutionContext;
+  facts: GatewayFacts;
+  metadata: Record<string, unknown>;
+  plan?: ProxyExecutionPlan;
+  requirements: ProxyRouteRequirements;
+  target: GatewayTargetRequest;
+}
+
+export interface ProxyDecisionStatePatch {
+  candidates?: ProxyProviderCandidate[];
+  context?: Partial<GatewayExecutionContext>;
+  facts?: Partial<GatewayFacts>;
+  metadata?: Record<string, unknown>;
+  plan?: ProxyExecutionPlan;
+  requirements?: ProxyRouteRequirements;
+  target?: GatewayTargetRequest;
+}
+
+export interface ProxyPipelineStepConfig {
+  args?: Record<string, unknown>;
+  use: string;
+}
+
+export interface ProxyPipelineConfig {
+  enrich?: ProxyPipelineStepConfig[];
+  id: string;
+  match?: ProxyPipelineStepConfig[];
+  plan: ProxyPipelineStepConfig[];
+  priority?: number;
+  rank?: ProxyPipelineStepConfig[];
+  require?: ProxyPipelineStepConfig[];
+  select?: ProxyPipelineStepConfig[];
+  verify?: ProxyPipelineStepConfig[];
+}
+
+export type ProxyPipelineDecision =
+  | {
+      kind: PIPELINE_DECISION_KIND.CONTINUE;
+    }
+  | {
+      code: string;
+      kind: PIPELINE_DECISION_KIND.REJECT;
+      message: string;
+      status?: number;
+    }
+  | {
+      kind: PIPELINE_DECISION_KIND.USE_PLAN;
+      plan: ProxyExecutionPlan;
+    }
+  | {
+      kind: PIPELINE_DECISION_KIND.SKIP_PIPELINE;
+      reason?: string;
+    };
+
+export interface ProxyGatewayServices {
+  [serviceName: string]: unknown;
+}
+
+export interface ProxyPipelineStepInput {
+  args: Record<string, unknown>;
+  requestId: string;
+  services: ProxyGatewayServices;
+  signal: AbortSignal;
+  state: ProxyDecisionState;
+}
+
+export interface ProxyPipelineStepResult {
+  decision?: ProxyPipelineDecision;
+  events?: GatewayEvent[];
+  statePatch?: ProxyDecisionStatePatch;
+}
+
+export interface ProxyPipelineStep {
+  readonly type: string;
+  execute(input: ProxyPipelineStepInput): Promise<ProxyPipelineStepResult>;
+}
+
+export interface ProxyPipelineStepRegistryPort {
+  get(type: string): ProxyPipelineStep | undefined;
 }
 
 export interface GatewayTargetResponse {

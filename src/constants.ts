@@ -60,6 +60,7 @@ export enum RESPONSE_CODE {
   INVALID_PROXY_FETCH_REQUEST = 'INVALID_PROXY_FETCH_REQUEST',
   NO_PROVIDER_AVAILABLE = 'NO_PROVIDER_AVAILABLE',
   NO_ROUTE_MATCHED = 'NO_ROUTE_MATCHED',
+  PIPELINE_STEP_NOT_FOUND = 'PIPELINE_STEP_NOT_FOUND',
   PROVIDER_INSTANCE_NOT_FOUND = 'PROVIDER_INSTANCE_NOT_FOUND',
   TARGET_TRANSPORT_ERROR = 'TARGET_TRANSPORT_ERROR',
   TRANSPORT_NOT_CONFIGURED = 'TRANSPORT_NOT_CONFIGURED',
@@ -88,4 +89,29 @@ export enum ROUTE_SELECTION_RESULT_KIND {
   DEFAULT = 'default',
   MATCHED = 'matched',
   NO_MATCH = 'no-match',
+}
+
+export enum PIPELINE_PHASE {
+  ENRICH = 'enrich',
+  MATCH = 'match',
+  PLAN = 'plan',
+  RANK = 'rank',
+  REQUIRE = 'require',
+  SELECT = 'select',
+  VERIFY = 'verify',
+}
+
+export enum PIPELINE_DECISION_KIND {
+  CONTINUE = 'continue',
+  REJECT = 'reject',
+  SKIP_PIPELINE = 'skip-pipeline',
+  USE_PLAN = 'use-plan',
+}
+
+export enum PIPELINE_RESULT_KIND {
+  COMPLETED = 'completed',
+  PLAN_SELECTED = 'plan-selected',
+  REJECTED = 'rejected',
+  SKIPPED = 'skipped',
+  STEP_NOT_FOUND = 'step-not-found',
 }

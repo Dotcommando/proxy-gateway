@@ -18,6 +18,7 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/app/normalization`
 - `src/app/pipeline`
 - `src/app/planning`
+- `src/app/retry`
 - `src/app/types`
 - `src/app/use-cases`
 - `src/domain`
@@ -243,7 +244,7 @@ Green:
 Verify:
 - Route selection tests pass.
 
-## 10. Policy Pipeline Engine
+## 10. Policy Pipeline Engine - Done
 
 Detailed scope:
 - Keep pipeline orchestration in `src/app/pipeline`; keep custom step contracts in outbound ports because user/application code implements them.
@@ -263,6 +264,18 @@ Detailed scope:
   - `SKIP_PIPELINE` stops the current pipeline without treating it as rejection.
 - Unknown step types must fail with a stable package enum/code before any later step executes.
 - Events returned by steps should be accumulated in order, but telemetry emission remains a later integration concern.
+
+Implemented:
+- Added `PIPELINE_PHASE`, `PIPELINE_DECISION_KIND`, `PIPELINE_RESULT_KIND`, and `RESPONSE_CODE.PIPELINE_STEP_NOT_FOUND`.
+- Added outbound pipeline contracts: configs, step input/result, decisions, decision state, state patch, events, services, candidates, requirements, and execution plan types.
+- Added `src/app/pipeline/ProxyPipelineStepRegistry`.
+- Added `src/app/pipeline/ProxyPipelineEngine`.
+- Implemented fixed phase order: `match`, `enrich`, `require`, `select`, `rank`, `plan`, `verify`.
+- Implemented deterministic state patch merging without mutating previous state.
+- Implemented stop behavior for `REJECT`, `USE_PLAN`, and `SKIP_PIPELINE`.
+- Implemented stable unknown-step result before later steps execute.
+- Implemented ordered event accumulation.
+- Exported pipeline outbound contracts from the package root.
 
 Red:
 - Add tests that pipeline phase enums and decision-kind enums are used instead of inline string literals.
@@ -288,6 +301,7 @@ Verify:
 
 Detailed scope:
 - Keep planning orchestration in `src/app/planning`; keep provider capability/domain contracts in outbound ports and domain models.
+- Refine the placeholder `ProxyExecutionPlan` and attempt types introduced in step 10 instead of creating a second execution-plan model.
 - The planner consumes the selected route/default-route plan from step 9 and turns it into a provider-agnostic `ProxyExecutionPlan`.
 - Start with one built-in plan kind: fallback attempts in declared order.
 - Planner output should be executable by a later attempt executor, but this step should not execute provider `acquire()` or target transport.
@@ -303,9 +317,11 @@ Detailed scope:
 - Unknown explicit provider instance ids keep using `RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND`.
 - Capability mismatch/no viable provider should return a stable planner result code, represented by package enums.
 - Step 11 introduces planner-owned provider selection. Full removal or narrowing of the temporary public `providerSelection.providerInstanceId` bridge stays in step 19 after the full direct-route flow is wired through the planner.
+- Keep route-chain, forward-proxy transport support, retry execution, and timeout behavior out of this step unless needed only as inert plan data.
 
 Red:
 - Add tests that planner result kinds and stable rejection codes use package enums.
+- Add tests that the step 10 `ProxyExecutionPlan` placeholder shape is refined into the planner-owned public shape, not duplicated.
 - Add tests that `plan.fallback` produces ordered attempts.
 - Add tests for provider capability mismatch before `acquire()`.
 - Add tests for protocol, network type, and DNS requirement checks.
@@ -327,34 +343,75 @@ Verify:
 
 ## 12. Forward Proxy and SOCKS5H Route Model
 
+Detailed scope:
+- This step is about route contracts and transport handoff only. It must not implement provider-specific adapters, SOCKS clients, HTTP CONNECT tunneling, or actual proxy networking.
+- Extend the common outbound route model from direct-only to include:
+  - `ForwardProxyRoute`;
+  - `RouteChain`;
+  - `ForwardProxyHop`;
+  - `TorClientHop`;
+  - `CustomTransportHop`;
+  - `CustomTransportRoute`;
+  - route auth and DNS mode types.
+- Use enums for closed route kinds, hop kinds, protocols, DNS modes, and auth modes.
+- Preserve `socks5h` as a distinct protocol and require `dns: "proxy"` for Tor-like SOCKS5H routes where remote DNS is required.
+- The target transport port receives the provider route unchanged. Translation into provider-specific syntax belongs outside the core.
+- Unsupported routes should be classified with a stable enum/code at the transport/attempt boundary, but this step only needs enough classification shape to test route support rejection.
+- Route credentials and auth tokens must be representable but must not appear in diagnostics or event metadata.
+
 Red:
 - Add tests that providers can return `forward-proxy` routes for supported protocols.
 - Add a test that a `socks5h` route preserves proxy DNS mode.
 - Add a test that unsupported route types are classified as `UNSUPPORTED_ROUTE`.
 - Add a test that route auth does not leak into diagnostics.
+- Add tests for route kind, hop kind, protocol, DNS mode, and auth mode enums.
+- Add tests that `CustomTransportRoute.execute()` can return a target response through the common route model without the core knowing provider syntax.
+- Add tests that route chains are representable but rejected by a transport that does not support route chains.
 
 Green:
 - Add forward-proxy route contracts.
+- Add route-chain and custom-transport route contracts.
 - Pass routes to the transport without provider-specific translation.
 - Classify unsupported transport routes clearly.
+- Add a small route diagnostic/redaction helper only if needed by tests; otherwise leave full redaction for the redaction step.
 
 Verify:
 - Route model tests pass.
 
 ## 13. Retry Safety
 
+Detailed scope:
+- Keep retry decision logic in `src/app/retry`; keep classification itself in step 14.
+- This step decides whether another already-planned attempt may run. It should not execute attempts, acquire leases, or classify raw errors.
+- Inputs should be already-classified attempt outcomes, request method/body replayability, route retry policy, retry safety policy, and attempt/fallback position.
+- Use enums for retry conditions and retry decision kinds.
+- Default behavior must stay safe:
+  - target HTTP statuses are not retried by default;
+  - unsafe methods are not retried by default;
+  - unsafe method retry requires explicit policy and, when configured, an idempotency key;
+  - non-replayable bodies prevent retry before a second attempt starts;
+  - caller abort and total gateway timeout are never retried.
+- This step should distinguish "retry same route/provider attempt" from "fallback to next planned attempt" where the plan has another attempt available.
+- Response streaming already started remains non-retryable; full streamed-response handling can stay in later response streaming work.
+
 Red:
+- Add tests that retry condition enums and retry decision enums are used instead of inline string literals.
 - Add a test that target HTTP `500` is returned without retry by default.
 - Add a test that HTTP status retry happens only when explicitly configured.
 - Add tests for retryable network/proxy failures when policy allows them.
 - Add tests that unsafe methods do not retry by default.
 - Add tests that non-replayable bodies prevent retry.
+- Add tests that POST retries require explicit unsafe retry policy and an idempotency key when the policy requires one.
+- Add tests that caller abort and total gateway timeout never retry.
+- Add tests that retry can choose fallback only when a later planned attempt exists.
+- Add tests that response-stream-already-started is not retryable.
 
 Green:
 - Implement `RetryDecider`.
 - Add default retry safety behavior.
 - Connect retry decisions to attempt outcomes and body replayability.
 - Represent retry conditions and retry decisions with enums where they cross module boundaries.
+- Keep attempt execution integration for later steps; this step returns decisions only.
 
 Verify:
 - Retry tests pass.
