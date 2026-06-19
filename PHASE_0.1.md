@@ -16,10 +16,13 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/app/buffering`
 - `src/app/envelopes`
 - `src/app/normalization`
+- `src/app/pipeline`
+- `src/app/planning`
 - `src/app/types`
 - `src/app/use-cases`
 - `src/domain`
 - `src/domain/matching`
+- `src/domain/routing`
 
 Use-cases belong in `src/app/use-cases`. `src/domain` is for provider-agnostic models, value objects, classification types, route models, matching primitives, and pure rules.
 
@@ -203,7 +206,26 @@ Green:
 Verify:
 - Matcher tests pass.
 
-## 9. Route Priority and Exclude
+## 9. Route Priority and Exclude - Done
+
+Detailed scope:
+- Keep route selection as a pure domain rule in `src/domain/routing`.
+- Add route-match evaluation over the normalized target URL: `url`, `host`, `path`, and `method` for this slice.
+- Keep richer match surfaces such as headers/context/facts for later route/pipeline work unless a test in this step requires them.
+- Use deterministic ordering: higher `priority` wins; equal priority preserves declaration order.
+- Evaluate `exclude` only after the route's positive `match` succeeds.
+- Use an explicit default route only when no configured route matches.
+- Represent route-selection result kinds and stable no-match error codes with package enums.
+
+Implemented:
+- Added `src/domain/routing` with `selectRoute()` and `matchesRoute()`.
+- Added route config, default-route config, route-match, route-selection input, target, and result types.
+- Added `ROUTE_SELECTION_RESULT_KIND` and `RESPONSE_CODE.NO_ROUTE_MATCHED`.
+- Implemented deterministic priority sorting without mutating configured routes.
+- Implemented stable equal-priority ordering by declaration index.
+- Implemented `exclude` evaluation after positive match only.
+- Implemented explicit default route fallback only after no route matched.
+- Implemented method matching case-insensitively against target methods.
 
 Red:
 - Add tests for priority ordering.
@@ -211,9 +233,11 @@ Red:
 - Add tests showing `exclude` is evaluated after a positive match.
 - Add a no-match test that returns `NO_ROUTE_MATCHED`.
 - Add tests that route-selection result kinds and stable error codes use package enums.
+- Add a default-route test proving default selection happens only after no route matched.
+- Add a small route-match test for method plus URL/host/path matcher integration.
 
 Green:
-- Implement deterministic route/pipeline selection.
+- Implement deterministic route selection.
 - Add default-route behavior only where explicitly configured.
 
 Verify:
@@ -221,36 +245,82 @@ Verify:
 
 ## 10. Policy Pipeline Engine
 
+Detailed scope:
+- Keep pipeline orchestration in `src/app/pipeline`; keep custom step contracts in outbound ports because user/application code implements them.
+- Add package enums for pipeline phases and decision kinds before adding public contracts.
+- Execute phases in this fixed order: `match`, `enrich`, `require`, `select`, `rank`, `plan`, `verify`.
+- Treat missing optional phase arrays as empty. The `plan` phase remains required by config shape, but tests may use an empty `plan` array to exercise engine behavior.
+- Each configured step receives `requestId`, the current decision state, configured `args`, gateway services, and the caller/attempt `AbortSignal`.
+- A step result may return a `statePatch`, a decision, and events. State patches must be merged deterministically and must not mutate the previous state object.
+- Keep v0.1 state-patch semantics intentionally explicit:
+  - replace `target` when provided;
+  - shallow-merge `context`, `facts`, `requirements`, and `metadata`;
+  - replace `candidates` and `plan` when provided.
+- Decision behavior for v0.1:
+  - missing decision or `CONTINUE` continues;
+  - `REJECT` stops execution and returns the rejection;
+  - `USE_PLAN` stores/returns the execution plan and stops later phases for the selected pipeline;
+  - `SKIP_PIPELINE` stops the current pipeline without treating it as rejection.
+- Unknown step types must fail with a stable package enum/code before any later step executes.
+- Events returned by steps should be accumulated in order, but telemetry emission remains a later integration concern.
+
 Red:
+- Add tests that pipeline phase enums and decision-kind enums are used instead of inline string literals.
 - Add tests proving phase order.
 - Add tests for state patches flowing into later steps.
 - Add tests for `reject`, `use-plan`, and `skip-pipeline` decisions.
 - Add a test for unknown step type handling.
 - Add tests that pipeline phase and decision kinds use enums, not inline string-literal unions.
+- Add tests proving step args, request id, services, and `AbortSignal` are passed to each step.
+- Add tests proving returned events are accumulated in execution order.
 
 Green:
+- Add outbound `ProxyPipelineStep` and registry contracts.
 - Implement `ProxyPipelineEngine`.
 - Implement `ProxyPipelineStepRegistry`.
 - Implement controlled state patch merging.
+- Add stable error/result shape for unknown step types.
 
 Verify:
 - Pipeline tests pass.
 
 ## 11. Execution Planner and Requirements
 
+Detailed scope:
+- Keep planning orchestration in `src/app/planning`; keep provider capability/domain contracts in outbound ports and domain models.
+- The planner consumes the selected route/default-route plan from step 9 and turns it into a provider-agnostic `ProxyExecutionPlan`.
+- Start with one built-in plan kind: fallback attempts in declared order.
+- Planner output should be executable by a later attempt executor, but this step should not execute provider `acquire()` or target transport.
+- Provider references inside plan attempts must use provider instance ids, not adapter kind names.
+- Capability snapshots must be collected in the planner before execution and reused by later attempt execution.
+- Requirement filtering in this step covers only the provider capability dimensions needed for v0.1:
+  - explicit provider instance include/exclude;
+  - protocol support;
+  - network type support;
+  - DNS mode support and remote DNS requirement;
+  - disabled provider instances.
+- `socks5h` and `dns.resolution: "proxy"` must be preserved as requirements. The planner must not silently downgrade to `socks5` or gateway DNS.
+- Unknown explicit provider instance ids keep using `RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND`.
+- Capability mismatch/no viable provider should return a stable planner result code, represented by package enums.
+- Step 11 introduces planner-owned provider selection. Full removal or narrowing of the temporary public `providerSelection.providerInstanceId` bridge stays in step 19 after the full direct-route flow is wired through the planner.
+
 Red:
+- Add tests that planner result kinds and stable rejection codes use package enums.
 - Add tests that `plan.fallback` produces ordered attempts.
 - Add tests for provider capability mismatch before `acquire()`.
 - Add tests for protocol, network type, and DNS requirement checks.
 - Add a test proving `socks5h` plus proxy DNS requirements are not downgraded.
 - Add tests that explicit provider references use provider instance ids and unknown ids return the stable `PROVIDER_INSTANCE_NOT_FOUND` service code.
-- Add tests that planner-owned provider selection replaces the temporary `providerSelection.providerInstanceId` direct-route hook from step 7.
+- Add tests that disabled providers are rejected/skipped during planning.
+- Add tests that provider capabilities are read during planning but provider `acquire()` is not called.
+- Add tests that planner-owned provider selection can express the same direct-route choice currently covered by the temporary `providerSelection.providerInstanceId` hook from step 7.
 
 Green:
 - Implement `ExecutionPlanner`.
 - Add the initial built-in `plan.fallback` step.
 - Reject impossible plans before execution.
 - Move provider capability snapshots into planner-owned selection so the use-case does not duplicate planning concerns.
+- Keep use-case integration scoped: introduce planner-owned selection now, remove or narrow the temporary public bridge later in step 19.
 
 Verify:
 - Planner tests pass.
