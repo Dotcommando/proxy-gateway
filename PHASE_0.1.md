@@ -20,6 +20,8 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/app/pipeline`
 - `src/app/planning`
 - `src/app/retry`
+- `src/app/security`
+- `src/app/timeouts`
 - `src/app/types`
 - `src/app/use-cases`
 - `src/domain`
@@ -406,7 +408,7 @@ Green:
 Verify:
 - Route model tests pass.
 
-## 13. Result Classification
+## 13. Result Classification - Done
 
 Detailed scope:
 - This step now comes before retry because `RetryDecider` must consume classified outcomes, not raw thrown values.
@@ -436,6 +438,17 @@ Detailed scope:
 - Diagnostics must reuse the route diagnostic rules added in step 12 where route data is included, and must not include route credentials, target authorization headers, cookies, proxy credentials, or tokens.
 - Preserve best-effort provider `release()` behavior in existing tests. Full attempt-executor wiring remains later.
 
+Implemented:
+- Added `src/app/classification/ResultClassifier`.
+- Expanded `PROXY_ATTEMPT_RESULT_OUTCOME` with the v0.1 classification taxonomy while keeping the earlier `GATEWAY_ERROR` value as a compatibility leftover for code paths not yet migrated.
+- Added `RETRY_CONDITION` enum values for HTTP retry-status hints, target/proxy failures, timeout, geo mismatch, and exit verification failure.
+- Added stable service-level response codes for classified target/proxy/timeout/policy/replayability/streaming/verification failures.
+- Classified target HTTP 4xx/5xx responses as attempt outcomes with retry-condition hints, not service errors.
+- Classified target transport failures in the current direct execution path as `TARGET_NETWORK_ERROR` while preserving the service envelope code `TARGET_TRANSPORT_ERROR`.
+- Kept unsupported route classification wired through the direct execution path with `retryable: false`.
+- Added diagnostics that reuse safe route diagnostics and redact sensitive target headers.
+- Added result-classifier tests and updated direct route hardening/route model expectations for classified outcomes.
+
 Red:
 - Add tests that `PROXY_ATTEMPT_RESULT_OUTCOME` and `RETRY_CONDITION` use package enums.
 - Add tests for target HTTP success and target HTTP retry-condition statuses such as 403, 429, and 500.
@@ -462,9 +475,15 @@ Verify:
 
 Detailed scope:
 - Keep retry decision logic in `src/app/retry`.
-- This step consumes classified output from step 13. It must not classify raw errors, execute attempts, acquire leases, or call target transport.
-- Inputs should be already-classified attempt outcome, optional retry condition, request method, request body replayability, retry policy, retry safety policy, and current position in the planned attempts.
-- Use package enums for retry decision kinds and retry conditions.
+- This step consumes classified output from step 13. It must not classify raw errors, execute attempts, acquire leases, call target transport, or inspect thrown error objects.
+- Reuse `RETRY_CONDITION` from step 13. Do not create a parallel retry-condition model.
+- Add only the retry-decision enum and decision result shape needed by `RetryDecider`.
+- Suggested decision enum values: `DO_NOT_RETRY`, `RETRY_SAME_ATTEMPT`, and `FALLBACK_TO_NEXT_ATTEMPT`.
+- Inputs should be already-classified attempt outcome, optional retry condition, request method, request headers, request body replayability, retry policy, retry safety policy, current plan position, current attempt number for that provider attempt, and the planned attempts list.
+- Retry policy in this step should stay close to the existing plan/attempt shape:
+  - `retryOn?: RETRY_CONDITION[]`;
+  - `maxAttempts?: number`;
+  - fallback is available only when a later planned attempt exists.
 - Default behavior must stay safe:
   - target HTTP statuses are not retried by default;
   - HTTP status retry happens only when the route/attempt policy lists the matching condition;
@@ -473,15 +492,17 @@ Detailed scope:
   - non-replayable bodies prevent retry before a second attempt starts;
   - caller abort and total gateway timeout are never retried;
   - response-stream-already-started is never retried.
-- Distinguish retrying the same planned attempt from falling back to the next planned attempt.
+- Proxy auth errors may fallback to a different provider instance when policy allows, but must not retry the same provider instance.
+- `GATEWAY_ERROR` is a legacy compatibility outcome. New retry tests should use the specific outcomes produced by `ResultClassifier`.
 - Keep retry output executable by a later attempt executor: decision kind, optional retry condition, optional next attempt index/provider id, and reason/code.
 
 Red:
 - Add tests that retry decision kinds use package enums, not inline string literals.
+- Add tests that `RetryDecider` consumes `RETRY_CONDITION` from step 13 instead of redefining conditions.
 - Add a test that target HTTP `500` is not retried by default even when classified with `RETRY_CONDITION.HTTP_500`.
 - Add tests that HTTP status retry happens only when explicitly configured.
 - Add tests for retryable network/proxy failures when policy allows them.
-- Add tests that proxy auth error does not retry the same provider instance.
+- Add tests that proxy auth error does not retry the same provider instance, but may fallback when another planned provider exists and policy allows it.
 - Add tests that unsafe methods do not retry by default.
 - Add tests that non-replayable bodies prevent retry.
 - Add tests that POST retries require explicit unsafe retry policy and an idempotency key when the policy requires one.
@@ -493,7 +514,7 @@ Green:
 - Implement `RetryDecider`.
 - Add `RETRY_DECISION_KIND` in `src/constants.ts`.
 - Add default retry safety behavior.
-- Connect retry decisions to classified attempt outcomes, retry conditions, plan position, method safety, idempotency key, and body replayability.
+- Connect retry decisions to classified attempt outcomes, retry conditions, plan position, current attempt count, method safety, idempotency key, and body replayability.
 - Keep attempt execution integration for later steps; this step returns decisions only.
 
 Verify:
@@ -502,8 +523,8 @@ Verify:
 ## 15. Total Timeout, Attempt Timeout, and Abort
 
 Detailed scope:
-- Keep timeout orchestration in `src/app/use-cases` only if it stays small; otherwise introduce `src/app/use-cases/timeout-controller.ts` or `src/app/timeout`.
-- This step wires cancellation primitives, not full retry execution. Per-attempt timeout may be tested with a small harness/fake executor if the full attempt executor is not ready.
+- Keep timeout orchestration in `src/app/timeouts`.
+- This step wires cancellation primitives, not full retry execution. Per-attempt timeout should be tested with a small harness/fake executor until the full attempt executor is ready.
 - Model the two-level cancellation tree:
   - caller signal;
   - total gateway controller;
@@ -512,14 +533,16 @@ Detailed scope:
 - Attempt timeout should come from the planned attempt when present; otherwise use the configured/default attempt timeout.
 - Provider `acquire()`, optional verification, and target transport must receive the attempt signal.
 - If caller aborts or total timeout fires, no fallback starts.
-- If per-attempt timeout fires, a later step may fallback only when retry policy allows it. In this step, prove the controller can mark the attempt timeout separately from total timeout.
+- If per-attempt timeout fires, `TimeoutController` should report an attempt-timeout observation that later retry logic can consume. Fallback execution itself remains outside this step.
 - Lease `release()` should run when a lease exists, even after timeout or abort. Release remains best-effort.
 - Timer cleanup and abort listener cleanup are required and must be test-covered with deterministic fake timers or controlled promises.
+- Timeout/abort observations should map to the outcomes and service-error mappings already introduced by `ResultClassifier`.
+- Avoid using real sleeps in tests; use controlled promises, fake timers, or immediate abort signals.
 
 Red:
-- Add tests that timeout and abort result kinds use package enums where they cross module boundaries.
+- Add tests that timeout and abort observations map to existing `PROXY_ATTEMPT_RESULT_OUTCOME` enum values.
 - Add a test that total timeout cancels the active attempt and prevents fallback.
-- Add a test that per-attempt timeout can move to the next attempt when policy allows it.
+- Add a test that per-attempt timeout is reported separately from total timeout.
 - Add a test that caller abort cancels acquire/transport and prevents future attempts.
 - Add a test for success-vs-timeout race settling once.
 - Add a test that lease release runs after timeout or abort when a lease exists.
@@ -531,7 +554,7 @@ Green:
 - Implement `TimeoutController`.
 - Wire total and attempt `AbortSignal`s through provider acquisition and target transport.
 - Clean up timers and abort listeners.
-- Map timeout/abort observations through `ResultClassifier` outcomes from step 13 where practical.
+- Map timeout/abort observations through `ResultClassifier` outcomes from step 13.
 - Keep retry/fallback execution minimal; full retry loop wiring remains later.
 
 Verify:
@@ -539,14 +562,37 @@ Verify:
 
 ## 16. Target Access Guard
 
+Detailed scope:
+- Keep target access policy enforcement in `src/app/security`.
+- This step is SSRF risk reduction for target URLs. It must not become DNS intelligence, GeoIP, or network probing.
+- The guard may inspect:
+  - normalized target URL scheme/host/port;
+  - literal IP hosts;
+  - obvious local hostnames such as `localhost`;
+  - already-provided resolved IP facts when a future enricher/port supplies them.
+- The guard must not perform DNS resolution by itself.
+- Default policy must deny unsupported schemes and local/private/link-local targets.
+- Explicit policy may allow local/private targets for tests or trusted deployments.
+- `.onion` access should stay denied by default unless target policy explicitly allows onion targets; route capability checks for onion support stay with planning/transport capability work.
+- Redirect guarding in v0.1 should be implemented as a reusable guard method for a supplied redirect URL/final URL. Full redirect-chain integration waits until target transport exposes redirect information.
+- Rejections should use stable response codes and classified policy-rejection outcomes where practical.
+- Keep IP parsing dependency-free and focused: IPv4 loopback/private/link-local/multicast/unspecified, IPv6 loopback/link-local/unique-local/unspecified, and bracketed IPv6 URL hosts.
+
 Red:
-- Add default-deny tests for unsupported schemes, localhost, loopback IPs, private IP ranges, link-local addresses, and redirect-to-denied-target cases.
+- Add tests that target access result kinds and stable rejection codes use package enums.
+- Add default-deny tests for unsupported schemes such as `file:`, `ftp:`, and `data:`.
+- Add default-deny tests for `localhost`, `*.localhost`, IPv4 loopback, private, link-local, multicast, and unspecified ranges.
+- Add default-deny tests for IPv6 loopback, link-local, unique-local, and unspecified addresses, including bracketed URL hosts.
+- Add `.onion` deny-by-default and explicit-allow tests.
 - Add explicit-allow tests for policies that intentionally permit local/private targets.
+- Add tests that already-resolved private IP facts cause rejection even when the hostname itself is public-looking.
+- Add redirect/final-URL guard tests using a supplied redirect URL, without requiring target transport redirect-chain integration.
 
 Green:
 - Implement `TargetAccessGuard`.
-- Apply it before execution.
-- Apply it to redirect targets when redirect information is available.
+- Add target access policy/result types in the owning app/security module or app-layer types when they are public configuration.
+- Apply it before provider acquisition/target execution in the current direct flow where doing so does not require the full step 19 orchestration.
+- Add reusable validation for supplied redirect/final URLs, but do not invent redirect metadata in target transport.
 
 Verify:
 - Access guard tests pass.

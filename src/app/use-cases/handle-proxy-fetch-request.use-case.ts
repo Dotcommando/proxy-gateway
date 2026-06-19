@@ -10,6 +10,7 @@ import type {
   ProxyProviderInstance,
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
+import { ResultClassifier } from '../classification';
 import { ProxyFetchJsonEnvelopeBuilder, ProxyFetchJsonEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
 import type { ProxyGatewayOptions } from '../types';
 
@@ -18,6 +19,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #jsonEnvelopeBuilder = new ProxyFetchJsonEnvelopeBuilder();
   readonly #jsonEnvelopeParser = new ProxyFetchJsonEnvelopeParser();
   readonly #options: ProxyGatewayOptions;
+  readonly #resultClassifier = new ResultClassifier();
 
   constructor(options: ProxyGatewayOptions) {
     this.#options = options;
@@ -76,6 +78,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         provider,
         request,
         requestId,
+        resultClassifier: this.#resultClassifier,
         target,
         transport: this.#options.transport,
       });
@@ -130,24 +133,27 @@ async function executeDirectAttempt(input: {
   provider: ProxyProviderInstance;
   request: Request;
   requestId: string;
+  resultClassifier: ResultClassifier;
   target: GatewayTargetRequest;
   transport: NonNullable<ProxyGatewayOptions['transport']>;
 }): Promise<GatewayTargetResponse | Response> {
   if (input.transport.supportsRoute?.(input.lease.route) === false) {
     const message = `Target transport does not support route kind: ${input.lease.route.kind}.`;
-    const result: ProxyAttemptResult = {
-      error: {
-        code: RESPONSE_CODE.UNSUPPORTED_ROUTE,
-        message,
-      },
-      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.UNSUPPORTED_ROUTE,
-    };
-
-    await releaseBestEffort(input.provider, input.lease, result);
-
-    return input.jsonEnvelopeBuilder.buildServiceError(502, {
-      code: RESPONSE_CODE.UNSUPPORTED_ROUTE,
+    const classified = input.resultClassifier.classifyFailure({
       message,
+      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.UNSUPPORTED_ROUTE,
+      route: input.lease.route,
+      target: input.target,
+    });
+
+    await releaseBestEffort(input.provider, input.lease, classified.attemptResult);
+
+    const serviceError = classified.serviceError;
+
+    return input.jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
+      code: serviceError?.code ?? RESPONSE_CODE.UNSUPPORTED_ROUTE,
+      message: serviceError?.message ?? message,
+      retryable: serviceError?.retryable ?? false,
     });
   }
 
@@ -161,20 +167,21 @@ async function executeDirectAttempt(input: {
 
     return await input.bodyBufferManager.bufferResponseBody(targetResponse);
   } catch {
-    const result: ProxyAttemptResult = {
-      error: {
-        code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
-        message: 'Target transport execution failed.',
-      },
-      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR,
-    };
-
-    await releaseBestEffort(input.provider, input.lease, result);
-
-    return input.jsonEnvelopeBuilder.buildServiceError(502, {
-      code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+    const classified = input.resultClassifier.classifyFailure({
       message: 'Target transport execution failed.',
-      retryable: true,
+      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_NETWORK_ERROR,
+      route: input.lease.route,
+      target: input.target,
+    });
+
+    await releaseBestEffort(input.provider, input.lease, classified.attemptResult);
+
+    const serviceError = classified.serviceError;
+
+    return input.jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
+      code: serviceError?.code ?? RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+      message: serviceError?.message ?? 'Target transport execution failed.',
+      retryable: serviceError?.retryable ?? true,
     });
   }
 }

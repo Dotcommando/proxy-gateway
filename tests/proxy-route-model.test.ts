@@ -117,6 +117,7 @@ describe('proxy route model', () => {
       error: {
         code: RESPONSE_CODE.UNSUPPORTED_ROUTE,
         message: 'Target transport does not support route kind: route-chain.',
+        retryable: false,
       },
       ok: false,
       version: WIRE_PROTOCOL_VERSION,
