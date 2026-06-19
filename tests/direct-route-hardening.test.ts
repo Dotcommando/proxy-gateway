@@ -5,7 +5,9 @@ import {
   type GatewayTargetRequest,
   type GatewayTargetResponse,
   PROXY_ATTEMPT_RESULT_OUTCOME,
+  PROXY_ROUTE_KIND,
   type ProxyAttemptResult,
+  type ProxyLease,
   type ProxyProviderInstance,
   RESPONSE_CODE,
   type TargetTransportPort,
@@ -202,12 +204,12 @@ function directProvider(
   };
 }
 
-function directLease() {
+function directLease(): ProxyLease {
   return {
     id: 'lease-1',
     providerInstanceId: 'direct-provider',
     providerKind: 'test-direct',
-    route: { kind: 'direct' as const },
+    route: { kind: PROXY_ROUTE_KIND.DIRECT },
   };
 }
 

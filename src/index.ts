@@ -3,7 +3,12 @@ export type { BodyBufferingPolicy, ProviderSelectionConfig, ProxyGatewayOptions 
 export * from './constants';
 export type { ProxyGateway } from './ports/inbound';
 export type {
+  CustomTransportExecuteInput,
+  CustomTransportHop,
+  CustomTransportRoute,
   DirectRoute,
+  ForwardProxyHop,
+  ForwardProxyRoute,
   GatewayBody,
   GatewayEvent,
   GatewayExecutionContext,
@@ -37,8 +42,13 @@ export type {
   ProxyProviderDnsCapabilities,
   ProxyProviderInstance,
   ProxyRoute,
+  ProxyRouteAuth,
+  ProxyRouteAuthMode,
+  ProxyRouteHop,
   ProxyRouteRequirements,
   RandomPort,
+  RouteChain,
   TargetTransportExecuteInput,
   TargetTransportPort,
+  TorClientHop,
 } from './ports/outbound';

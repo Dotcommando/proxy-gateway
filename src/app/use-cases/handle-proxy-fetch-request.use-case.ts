@@ -133,6 +133,24 @@ async function executeDirectAttempt(input: {
   target: GatewayTargetRequest;
   transport: NonNullable<ProxyGatewayOptions['transport']>;
 }): Promise<GatewayTargetResponse | Response> {
+  if (input.transport.supportsRoute?.(input.lease.route) === false) {
+    const message = `Target transport does not support route kind: ${input.lease.route.kind}.`;
+    const result: ProxyAttemptResult = {
+      error: {
+        code: RESPONSE_CODE.UNSUPPORTED_ROUTE,
+        message,
+      },
+      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.UNSUPPORTED_ROUTE,
+    };
+
+    await releaseBestEffort(input.provider, input.lease, result);
+
+    return input.jsonEnvelopeBuilder.buildServiceError(502, {
+      code: RESPONSE_CODE.UNSUPPORTED_ROUTE,
+      message,
+    });
+  }
+
   try {
     const targetResponse = await input.transport.execute({
       requestId: input.requestId,

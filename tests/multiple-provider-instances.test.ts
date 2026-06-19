@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   createProxyGateway,
   type GatewayTargetResponse,
+  PROXY_ROUTE_KIND,
   type ProxyAcquireInput,
   type ProxyProviderInstance,
   RESPONSE_CODE,
@@ -88,7 +89,7 @@ describe('multiple provider instances', () => {
                 id: 'capability-provider-lease',
                 providerInstanceId: 'capability-provider',
                 providerKind: 'static-forward-proxy',
-                route: { kind: 'direct' },
+                route: { kind: PROXY_ROUTE_KIND.DIRECT },
               };
             },
             getCapabilities: () => {
@@ -129,7 +130,7 @@ function providerInstance(
           id: `${id}-lease`,
           providerInstanceId: id,
           providerKind: 'static-forward-proxy',
-          route: { kind: 'direct' },
+          route: { kind: PROXY_ROUTE_KIND.DIRECT },
         };
       },
       getCapabilities: () => ({}),

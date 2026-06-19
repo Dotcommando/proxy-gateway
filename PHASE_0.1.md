@@ -356,7 +356,7 @@ Green:
 Verify:
 - Planner tests pass.
 
-## 12. Forward Proxy and SOCKS5H Route Model
+## 12. Forward Proxy and SOCKS5H Route Model - Done
 
 Detailed scope:
 - This step is about route contracts and transport handoff only. It must not implement provider-specific adapters, SOCKS clients, HTTP CONNECT tunneling, or actual proxy networking.
@@ -374,7 +374,18 @@ Detailed scope:
 - The target transport port receives the provider route unchanged. Translation into provider-specific syntax belongs outside the core.
 - Unsupported routes should be classified with a stable enum/code at the transport/attempt boundary, but this step only needs enough classification shape to test route support rejection.
 - Route credentials and auth tokens must be representable but must not appear in diagnostics or event metadata.
-- Keep full `ResultClassifier` behavior in step 14; this step may add only the minimal unsupported-route result enum/code needed by route model tests.
+- Keep full `ResultClassifier` behavior in step 13; this step may add only the minimal unsupported-route result enum/code needed by route model tests.
+
+Implemented:
+- Added route model enums for route kinds, hop kinds, and route auth modes, plus `UNSUPPORTED_ROUTE`.
+- Expanded the outbound `ProxyRoute` model from direct-only to direct, forward-proxy, route-chain, and custom-transport routes.
+- Added forward-proxy, Tor client, and custom-transport hop contracts for route chains.
+- Added route auth contracts that can represent credentials and tokens without exposing them through diagnostics.
+- Added optional `TargetTransportPort.supportsRoute(route)` preflight support.
+- Passed provider routes to target transports unchanged for supported route kinds.
+- Added unsupported-route handling at the attempt/transport boundary with best-effort provider release.
+- Added `createRouteDiagnostic()` for safe route diagnostics that omit usernames, passwords, and tokens.
+- Added route model tests for forward-proxy handoff, `socks5h` with proxy DNS, unsupported route rejection, custom transport execution, route-chain representability, and safe diagnostics.
 
 Red:
 - Add tests that providers can return `forward-proxy` routes for supported protocols.
@@ -395,55 +406,25 @@ Green:
 Verify:
 - Route model tests pass.
 
-## 13. Retry Safety
+## 13. Result Classification
 
 Detailed scope:
-- Keep retry decision logic in `src/app/retry`; keep classification itself in step 14.
-- This step decides whether another already-planned attempt may run. It should not execute attempts, acquire leases, or classify raw errors.
-- Inputs should be already-classified attempt outcomes, request method/body replayability, route retry policy, retry safety policy, and attempt/fallback position.
-- Use enums for retry conditions and retry decision kinds. If this step needs attempt outcome values before step 14, extend the existing `PROXY_ATTEMPT_RESULT_OUTCOME` enum rather than introducing a parallel outcome enum.
-- Default behavior must stay safe:
-  - target HTTP statuses are not retried by default;
-  - unsafe methods are not retried by default;
-  - unsafe method retry requires explicit policy and, when configured, an idempotency key;
-  - non-replayable bodies prevent retry before a second attempt starts;
-  - caller abort and total gateway timeout are never retried.
-- This step should distinguish "retry same route/provider attempt" from "fallback to next planned attempt" where the plan has another attempt available.
-- Response streaming already started remains non-retryable; full streamed-response handling can stay in later response streaming work.
-- Keep retry decision output small and executable by a later attempt executor: decision kind, optional retry condition, next attempt index/provider id where applicable, and reason/code.
-
-Red:
-- Add tests that retry condition enums and retry decision enums are used instead of inline string literals.
-- Add a test that target HTTP `500` is returned without retry by default.
-- Add a test that HTTP status retry happens only when explicitly configured.
-- Add tests for retryable network/proxy failures when policy allows them.
-- Add tests that unsafe methods do not retry by default.
-- Add tests that non-replayable bodies prevent retry.
-- Add tests that POST retries require explicit unsafe retry policy and an idempotency key when the policy requires one.
-- Add tests that caller abort and total gateway timeout never retry.
-- Add tests that retry can choose fallback only when a later planned attempt exists.
-- Add tests that response-stream-already-started is not retryable.
-
-Green:
-- Implement `RetryDecider`.
-- Add default retry safety behavior.
-- Connect retry decisions to attempt outcomes and body replayability.
-- Represent retry conditions and retry decisions with enums where they cross module boundaries.
-- Keep attempt execution integration for later steps; this step returns decisions only.
-
-Verify:
-- Retry tests pass.
-
-## 14. Result Classification
-
-Detailed scope:
+- This step now comes before retry because `RetryDecider` must consume classified outcomes, not raw thrown values.
 - Keep result classification in `src/app/classification`.
-- This step converts already-observed attempt data into stable gateway taxonomy. It does not decide whether to retry; retry remains step 13.
-- Expand or replace the provisional `PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS` / `GATEWAY_ERROR` values from earlier direct-route slices with the final outcome enum values, preserving or updating existing tests intentionally.
-- Classifier inputs should be explicit and testable:
+- This step converts already-observed attempt data into stable gateway taxonomy. It must not decide whether to retry and must not execute provider acquisition or target transport.
+- Expand `PROXY_ATTEMPT_RESULT_OUTCOME` toward the final v0.1 taxonomy in `src/constants.ts`.
+- Add `RETRY_CONDITION` in `src/constants.ts` because classifier output may expose retry-condition hints for the next step.
+- Existing provisional values from earlier direct-route slices must be handled intentionally:
+  - keep `SUCCESS`;
+  - replace `GATEWAY_ERROR` usage with more specific outcomes where the classifier is used;
+  - leave direct executor migration to later integration only when changing it would expand this step too far.
+- Classifier inputs should be explicit and easy to test:
   - target HTTP response status;
-  - target transport/network error kind;
-  - proxy auth/connection/timeout error kind;
+  - target transport/network failure;
+  - target timeout;
+  - proxy auth failure;
+  - proxy connection failure;
+  - proxy timeout;
   - gateway timeout;
   - caller abort;
   - policy rejection;
@@ -451,41 +432,107 @@ Detailed scope:
   - response stream already started;
   - unsupported route.
 - Target HTTP statuses are classified for retry policy decisions but must not become service errors by default.
-- Classifier output should include the attempt outcome enum, optional retry condition enum, stable service error code/status where the failure is service-level, and safe diagnostic metadata.
-- Preserve best-effort provider `release()` behavior: release should receive the final classified `ProxyAttemptResult` without release failures masking the response/error returned to the caller.
-- Keep envelope building integration narrow: add mapping helpers only where needed by tests; full gateway wiring remains in later full-flow steps.
+- Classifier output should include attempt outcome enum, optional retry condition enum, optional service error code/status for service-level failures, and safe diagnostic metadata.
+- Diagnostics must reuse the route diagnostic rules added in step 12 where route data is included, and must not include route credentials, target authorization headers, cookies, proxy credentials, or tokens.
+- Preserve best-effort provider `release()` behavior in existing tests. Full attempt-executor wiring remains later.
 
 Red:
-- Add classification tests for target HTTP status, target network error, target timeout, proxy auth error, proxy connection error, proxy timeout, gateway timeout, caller abort, policy rejection, and unsupported route.
-- Add tests that replace the step 6 provisional `TARGET_TRANSPORT_ERROR` / `PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR` handling with the final result taxonomy where possible, without regressing best-effort `release()` behavior.
-- Add tests that target HTTP 4xx/5xx statuses are not service errors by default but expose retry condition values for retry policy.
-- Add tests that caller abort and gateway timeout are not retryable conditions.
-- Add tests that diagnostic metadata does not include route credentials, target authorization headers, or cookies.
+- Add tests that `PROXY_ATTEMPT_RESULT_OUTCOME` and `RETRY_CONDITION` use package enums.
+- Add tests for target HTTP success and target HTTP retry-condition statuses such as 403, 429, and 500.
+- Add tests proving target HTTP 4xx/5xx statuses are not service errors by default.
+- Add tests for target network error, target timeout, proxy auth error, proxy connection error, and proxy timeout.
+- Add tests for gateway timeout and caller abort.
+- Add tests for policy rejection, request-body-not-replayable, response-stream-already-started, and unsupported route.
+- Add tests for service-level error mapping: code, status, retryable hint where applicable, and safe message.
+- Add tests that diagnostic metadata redacts route credentials and sensitive target headers.
+- Add regression tests that best-effort provider `release()` still receives the classified `ProxyAttemptResult` where current direct execution uses the classifier.
 
 Green:
 - Implement `ResultClassifier`.
-- Add stable service error codes and statuses.
-- Map classified attempt results into response envelopes.
-- Keep `ProxyAttemptResult.outcome` backed by enum values.
-- Expand `PROXY_ATTEMPT_RESULT_OUTCOME` to the final v0.1 taxonomy or provide a deliberate compatibility alias if a rename is unavoidable.
-- Keep retry decisions out of the classifier; expose retry condition data only.
+- Add final or near-final v0.1 attempt outcome enum values.
+- Add retry-condition enum values for HTTP, proxy, target, timeout, geo, and verification conditions.
+- Add stable service error codes/statuses only for service-level failures.
+- Add small mapping helpers only where needed by tests; do not wire the full gateway flow in this step.
+- Keep retry decisions out of the classifier; expose retry-condition hints only.
 
 Verify:
-- Classifier tests pass.
+- Classification tests pass.
+
+## 14. Retry Safety
+
+Detailed scope:
+- Keep retry decision logic in `src/app/retry`.
+- This step consumes classified output from step 13. It must not classify raw errors, execute attempts, acquire leases, or call target transport.
+- Inputs should be already-classified attempt outcome, optional retry condition, request method, request body replayability, retry policy, retry safety policy, and current position in the planned attempts.
+- Use package enums for retry decision kinds and retry conditions.
+- Default behavior must stay safe:
+  - target HTTP statuses are not retried by default;
+  - HTTP status retry happens only when the route/attempt policy lists the matching condition;
+  - unsafe methods are not retried by default;
+  - unsafe method retry requires explicit policy and, when configured, an idempotency key;
+  - non-replayable bodies prevent retry before a second attempt starts;
+  - caller abort and total gateway timeout are never retried;
+  - response-stream-already-started is never retried.
+- Distinguish retrying the same planned attempt from falling back to the next planned attempt.
+- Keep retry output executable by a later attempt executor: decision kind, optional retry condition, optional next attempt index/provider id, and reason/code.
+
+Red:
+- Add tests that retry decision kinds use package enums, not inline string literals.
+- Add a test that target HTTP `500` is not retried by default even when classified with `RETRY_CONDITION.HTTP_500`.
+- Add tests that HTTP status retry happens only when explicitly configured.
+- Add tests for retryable network/proxy failures when policy allows them.
+- Add tests that proxy auth error does not retry the same provider instance.
+- Add tests that unsafe methods do not retry by default.
+- Add tests that non-replayable bodies prevent retry.
+- Add tests that POST retries require explicit unsafe retry policy and an idempotency key when the policy requires one.
+- Add tests that caller abort and total gateway timeout never retry.
+- Add tests that fallback is selected only when a later planned attempt exists.
+- Add tests that response-stream-already-started is not retryable.
+
+Green:
+- Implement `RetryDecider`.
+- Add `RETRY_DECISION_KIND` in `src/constants.ts`.
+- Add default retry safety behavior.
+- Connect retry decisions to classified attempt outcomes, retry conditions, plan position, method safety, idempotency key, and body replayability.
+- Keep attempt execution integration for later steps; this step returns decisions only.
+
+Verify:
+- Retry tests pass.
 
 ## 15. Total Timeout, Attempt Timeout, and Abort
 
+Detailed scope:
+- Keep timeout orchestration in `src/app/use-cases` only if it stays small; otherwise introduce `src/app/use-cases/timeout-controller.ts` or `src/app/timeout`.
+- This step wires cancellation primitives, not full retry execution. Per-attempt timeout may be tested with a small harness/fake executor if the full attempt executor is not ready.
+- Model the two-level cancellation tree:
+  - caller signal;
+  - total gateway controller;
+  - per-attempt controller derived from total/caller state.
+- `options.timeoutMs` parsed from the proxy-fetch envelope should become the default total timeout for that request when present.
+- Attempt timeout should come from the planned attempt when present; otherwise use the configured/default attempt timeout.
+- Provider `acquire()`, optional verification, and target transport must receive the attempt signal.
+- If caller aborts or total timeout fires, no fallback starts.
+- If per-attempt timeout fires, a later step may fallback only when retry policy allows it. In this step, prove the controller can mark the attempt timeout separately from total timeout.
+- Lease `release()` should run when a lease exists, even after timeout or abort. Release remains best-effort.
+- Timer cleanup and abort listener cleanup are required and must be test-covered with deterministic fake timers or controlled promises.
+
 Red:
+- Add tests that timeout and abort result kinds use package enums where they cross module boundaries.
 - Add a test that total timeout cancels the active attempt and prevents fallback.
 - Add a test that per-attempt timeout can move to the next attempt when policy allows it.
 - Add a test that caller abort cancels acquire/transport and prevents future attempts.
 - Add a test for success-vs-timeout race settling once.
 - Add a test that lease release runs after timeout or abort when a lease exists.
+- Add a test that `options.timeoutMs` from the parsed service envelope is honored as total timeout.
+- Add tests proving provider acquire and target transport receive the attempt signal.
+- Add tests proving timers/listeners are cleaned up after success, timeout, and abort.
 
 Green:
 - Implement `TimeoutController`.
 - Wire total and attempt `AbortSignal`s through provider acquisition and target transport.
 - Clean up timers and abort listeners.
+- Map timeout/abort observations through `ResultClassifier` outcomes from step 13 where practical.
+- Keep retry/fallback execution minimal; full retry loop wiring remains later.
 
 Verify:
 - Timeout and abort tests pass.
@@ -591,7 +638,7 @@ Verify:
 2. Target normalization and body buffering.
 3. Provider/transport ports and direct execution.
 4. Matchers, route selection, and pipeline engine.
-5. Planner, retry/fallback, and classification.
+5. Planner, classification, and retry/fallback.
 6. Timeout, abort, and target access guard.
 7. Redaction and multipart support.
 8. Full direct-route E2E and wrapper contract suite.

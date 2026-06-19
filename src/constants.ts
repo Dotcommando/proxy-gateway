@@ -65,6 +65,7 @@ export enum RESPONSE_CODE {
   PROVIDER_INSTANCE_NOT_FOUND = 'PROVIDER_INSTANCE_NOT_FOUND',
   TARGET_TRANSPORT_ERROR = 'TARGET_TRANSPORT_ERROR',
   TRANSPORT_NOT_CONFIGURED = 'TRANSPORT_NOT_CONFIGURED',
+  UNSUPPORTED_ROUTE = 'UNSUPPORTED_ROUTE',
 }
 
 export enum PROVIDER_SELECTION_RESULT_KIND {
@@ -76,6 +77,7 @@ export enum PROVIDER_SELECTION_RESULT_KIND {
 export enum PROXY_ATTEMPT_RESULT_OUTCOME {
   GATEWAY_ERROR = 'gateway-error',
   SUCCESS = 'success',
+  UNSUPPORTED_ROUTE = 'unsupported-route',
 }
 
 export enum STRING_MATCHER_KIND {
@@ -149,4 +151,24 @@ export enum PROXY_NETWORK_TYPE {
   RESIDENTIAL = 'residential',
   STATIC_RESIDENTIAL = 'static-residential',
   TOR = 'tor',
+}
+
+export enum PROXY_ROUTE_KIND {
+  CUSTOM_TRANSPORT = 'custom-transport',
+  DIRECT = 'direct',
+  FORWARD_PROXY = 'forward-proxy',
+  ROUTE_CHAIN = 'route-chain',
+}
+
+export enum PROXY_ROUTE_HOP_KIND {
+  CUSTOM_TRANSPORT = 'custom-transport-hop',
+  FORWARD_PROXY = 'forward-proxy-hop',
+  TOR_CLIENT = 'tor-client-hop',
+}
+
+export enum PROXY_ROUTE_AUTH_MODE {
+  IP_WHITELIST = 'ip-whitelist',
+  NONE = 'none',
+  TOKEN = 'token',
+  USERNAME_PASSWORD = 'username-password',
 }

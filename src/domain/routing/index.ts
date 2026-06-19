@@ -1,3 +1,5 @@
+export type { RouteDiagnostic } from './route-diagnostics';
+export { createRouteDiagnostic } from './route-diagnostics';
 export type {
   ProxyDefaultRouteConfig,
   ProxyRouteConfig,

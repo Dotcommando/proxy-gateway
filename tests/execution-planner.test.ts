@@ -7,6 +7,7 @@ import {
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
+  PROXY_ROUTE_KIND,
   RESPONSE_CODE,
 } from '../src/constants';
 import type { ProxyProviderCapabilities, ProxyProviderInstance } from '../src/ports/outbound';
@@ -316,7 +317,7 @@ function provider(
           id: `${id}-lease`,
           providerInstanceId: id,
           providerKind: 'test-provider',
-          route: { kind: 'direct' },
+          route: { kind: PROXY_ROUTE_KIND.DIRECT },
         })),
       getCapabilities: overrides.getCapabilities ?? (() => capabilities),
     },

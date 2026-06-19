@@ -5,6 +5,9 @@ import {
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
+  PROXY_ROUTE_AUTH_MODE,
+  PROXY_ROUTE_HOP_KIND,
+  PROXY_ROUTE_KIND,
 } from '../../constants';
 
 export interface GatewayExecutionContext {
@@ -216,11 +219,79 @@ export interface GatewayTargetResponse {
   body: GatewayBody;
 }
 
-export interface DirectRoute {
-  kind: 'direct';
+export type ProxyRouteAuthMode = PROXY_ROUTE_AUTH_MODE | (string & {});
+
+export interface ProxyRouteAuth {
+  mode: ProxyRouteAuthMode;
+  password?: string;
+  token?: string;
+  username?: string;
 }
 
-export type ProxyRoute = DirectRoute;
+export interface ForwardProxyRoute {
+  auth?: ProxyRouteAuth;
+  dns?: ProxyDnsMode;
+  headers?: Array<[string, string]>;
+  host: string;
+  kind: PROXY_ROUTE_KIND.FORWARD_PROXY;
+  metadata?: Record<string, unknown>;
+  port: number;
+  protocol: ProxyProtocol;
+}
+
+export interface ForwardProxyHop {
+  auth?: ProxyRouteAuth;
+  dns?: ProxyDnsMode;
+  host: string;
+  kind: PROXY_ROUTE_HOP_KIND.FORWARD_PROXY;
+  metadata?: Record<string, unknown>;
+  port: number;
+  protocol: ProxyProtocol;
+}
+
+export interface TorClientHop {
+  auth?: ProxyRouteAuth;
+  control?: Record<string, unknown>;
+  dns: PROXY_DNS_MODE.PROXY;
+  isolation?: Record<string, unknown>;
+  kind: PROXY_ROUTE_HOP_KIND.TOR_CLIENT;
+  metadata?: Record<string, unknown>;
+  socksHost: string;
+  socksPort: number;
+  socksProtocol: PROXY_PROTOCOL.SOCKS5H;
+}
+
+export interface CustomTransportHop {
+  kind: PROXY_ROUTE_HOP_KIND.CUSTOM_TRANSPORT;
+  metadata?: Record<string, unknown>;
+}
+
+export type ProxyRouteHop = CustomTransportHop | ForwardProxyHop | TorClientHop;
+
+export interface RouteChain {
+  dns?: ProxyDnsMode;
+  hops: ProxyRouteHop[];
+  kind: PROXY_ROUTE_KIND.ROUTE_CHAIN;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CustomTransportExecuteInput {
+  requestId: string;
+  signal: AbortSignal;
+  target: GatewayTargetRequest;
+}
+
+export interface CustomTransportRoute {
+  execute(input: CustomTransportExecuteInput): Promise<GatewayTargetResponse>;
+  kind: PROXY_ROUTE_KIND.CUSTOM_TRANSPORT;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DirectRoute {
+  kind: PROXY_ROUTE_KIND.DIRECT;
+}
+
+export type ProxyRoute = CustomTransportRoute | DirectRoute | ForwardProxyRoute | RouteChain;
 
 export interface ProxyLease {
   id: string;
@@ -296,4 +367,5 @@ export interface TargetTransportExecuteInput {
 
 export interface TargetTransportPort {
   execute(input: TargetTransportExecuteInput): Promise<GatewayTargetResponse>;
+  supportsRoute?(route: ProxyRoute): boolean;
 }

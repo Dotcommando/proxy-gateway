@@ -4,6 +4,7 @@ import {
   createProxyGateway,
   type GatewayTargetRequest,
   PROXY_ATTEMPT_RESULT_OUTCOME,
+  PROXY_ROUTE_KIND,
   type ProxyAttemptResult,
   type ProxyProviderInstance,
   type TargetTransportPort,
@@ -28,7 +29,7 @@ describe('public API', () => {
             id: 'lease-1',
             providerInstanceId: input.providerInstanceId,
             providerKind: 'test-direct',
-            route: { kind: 'direct' },
+            route: { kind: PROXY_ROUTE_KIND.DIRECT },
           };
         },
         release: async (_lease, result) => {
@@ -39,7 +40,7 @@ describe('public API', () => {
     const transport: TargetTransportPort = {
       execute: async (input) => {
         expect(input.requestId).toBe('request-id-1');
-        expect(input.route).toEqual({ kind: 'direct' });
+        expect(input.route).toEqual({ kind: PROXY_ROUTE_KIND.DIRECT });
         expect(input.target.url).toBe('https://example.com/resource');
         expect(input.target.method).toBe('POST');
         expect(input.target.body).toEqual({
