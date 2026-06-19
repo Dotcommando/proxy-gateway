@@ -154,7 +154,14 @@ Green:
 Verify:
 - Direct route hardening tests pass.
 
-## 7. Multiple Provider Instances
+## 7. Multiple Provider Instances - Done
+
+Implemented:
+- Added `providerSelection.providerInstanceId` as a temporary direct-route selection hook until the planner/pipeline steps own provider selection.
+- Added tests for selecting one instance among multiple instances with the same adapter kind.
+- Added tests proving disabled provider instances are skipped.
+- Added stable `PROVIDER_INSTANCE_NOT_FOUND` service error for an explicit provider instance id that is unknown or disabled.
+- Added selected-provider capability snapshot before acquisition.
 
 Red:
 - Add tests for multiple provider instances, including multiple instances with the same adapter kind.
@@ -178,6 +185,7 @@ Green:
 - Implement URL and host normalization.
 - Implement exact, suffix, glob, and regexp matching.
 - Validate declarative regexp inputs.
+- Represent closed matcher kinds with enums, not inline string-literal unions.
 
 Verify:
 - Matcher tests pass.
@@ -189,6 +197,7 @@ Red:
 - Add tests for stable ordering when priorities are equal.
 - Add tests showing `exclude` is evaluated after a positive match.
 - Add a no-match test that returns `NO_ROUTE_MATCHED`.
+- Add tests that route-selection result kinds and stable error codes use package enums.
 
 Green:
 - Implement deterministic route/pipeline selection.
@@ -204,6 +213,7 @@ Red:
 - Add tests for state patches flowing into later steps.
 - Add tests for `reject`, `use-plan`, and `skip-pipeline` decisions.
 - Add a test for unknown step type handling.
+- Add tests that pipeline phase and decision kinds use enums, not inline string-literal unions.
 
 Green:
 - Implement `ProxyPipelineEngine`.
@@ -220,11 +230,14 @@ Red:
 - Add tests for provider capability mismatch before `acquire()`.
 - Add tests for protocol, network type, and DNS requirement checks.
 - Add a test proving `socks5h` plus proxy DNS requirements are not downgraded.
+- Add tests that explicit provider references use provider instance ids and unknown ids return the stable `PROVIDER_INSTANCE_NOT_FOUND` service code.
+- Add tests that planner-owned provider selection replaces the temporary `providerSelection.providerInstanceId` direct-route hook from step 7.
 
 Green:
 - Implement `ExecutionPlanner`.
 - Add the initial built-in `plan.fallback` step.
 - Reject impossible plans before execution.
+- Move provider capability snapshots into planner-owned selection so the use-case does not duplicate planning concerns.
 
 Verify:
 - Planner tests pass.
@@ -258,6 +271,7 @@ Green:
 - Implement `RetryDecider`.
 - Add default retry safety behavior.
 - Connect retry decisions to attempt outcomes and body replayability.
+- Represent retry conditions and retry decisions with enums where they cross module boundaries.
 
 Verify:
 - Retry tests pass.
@@ -266,12 +280,13 @@ Verify:
 
 Red:
 - Add classification tests for target HTTP status, target network error, target timeout, proxy auth error, proxy connection error, proxy timeout, gateway timeout, caller abort, policy rejection, and unsupported route.
-- Add tests that replace the step 6 provisional `TARGET_TRANSPORT_ERROR` / `gateway-error` handling with the final result taxonomy where possible, without regressing best-effort `release()` behavior.
+- Add tests that replace the step 6 provisional `TARGET_TRANSPORT_ERROR` / `PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR` handling with the final result taxonomy where possible, without regressing best-effort `release()` behavior.
 
 Green:
 - Implement `ResultClassifier`.
 - Add stable service error codes and statuses.
 - Map classified attempt results into response envelopes.
+- Keep `ProxyAttemptResult.outcome` backed by enum values.
 
 Verify:
 - Classifier tests pass.
@@ -349,6 +364,7 @@ Red:
 Green:
 - Wire parser, normalizer, access guard, pipeline/planner, attempt executor, retry decider, classifier, and builder through `HandleProxyFetchRequestUseCase` and extracted app collaborators.
 - Remove temporary `NOT_IMPLEMENTED` paths for covered v0.1 behavior.
+- Remove or narrow the temporary `providerSelection.providerInstanceId` hook once planner-owned direct-route defaults cover the same behavior.
 
 Verify:
 - Direct-route integration tests pass.

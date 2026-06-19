@@ -11,7 +11,12 @@ export interface BodyBufferingPolicy {
 
 export interface ProxyGatewayOptions {
   bodyBuffering?: BodyBufferingPolicy;
+  providerSelection?: ProviderSelectionConfig;
   providers: ProxyProviderInstance[];
   random?: RandomPort;
   transport?: TargetTransportPort;
+}
+
+export interface ProviderSelectionConfig {
+  providerInstanceId?: string;
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { RESPONSE_CODE } from '../../constants';
+import { PROVIDER_SELECTION_RESULT_KIND, PROXY_ATTEMPT_RESULT_OUTCOME, RESPONSE_CODE } from '../../constants';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
   GatewayTargetRequest,
@@ -31,12 +31,21 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         ...parsed.target,
         body: await this.#bodyBufferManager.bufferRequestBody(parsed.target.body),
       };
-      const provider = this.#options.providers.find((candidate) => candidate.enabled !== false);
+      const providerSelection = selectProviderInstance(
+        this.#options.providers,
+        this.#options.providerSelection?.providerInstanceId,
+      );
 
-      if (!provider) {
+      if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED) {
         return this.#jsonEnvelopeBuilder.buildServiceError(500, {
           code: RESPONSE_CODE.NO_PROVIDER_AVAILABLE,
           message: 'No enabled proxy provider is available.',
+        });
+      }
+      if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND) {
+        return this.#jsonEnvelopeBuilder.buildServiceError(500, {
+          code: RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND,
+          message: `Provider instance "${providerSelection.providerInstanceId}" was not found or is disabled.`,
         });
       }
       if (!this.#options.transport) {
@@ -46,7 +55,11 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         });
       }
 
+      const provider = providerSelection.provider;
       const requestId = this.#options.random?.createId() ?? randomUUID();
+
+      await provider.adapter.getCapabilities();
+
       const lease = await provider.adapter.acquire({
         attempt: { index: 0 },
         context: parsed.context,
@@ -72,7 +85,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       }
 
       await releaseBestEffort(provider, lease, {
-        outcome: 'success',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
         response: attemptResponse,
       });
 
@@ -84,6 +97,30 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       });
     }
   }
+}
+
+type ProviderSelectionResult =
+  | { kind: PROVIDER_SELECTION_RESULT_KIND.SELECTED; provider: ProxyProviderInstance }
+  | { kind: PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND; providerInstanceId: string }
+  | { kind: PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED };
+
+function selectProviderInstance(
+  providers: ProxyProviderInstance[],
+  providerInstanceId?: string,
+): ProviderSelectionResult {
+  if (providerInstanceId !== undefined) {
+    const provider = providers.find((candidate) => candidate.id === providerInstanceId && candidate.enabled !== false);
+
+    return provider
+      ? { kind: PROVIDER_SELECTION_RESULT_KIND.SELECTED, provider }
+      : { kind: PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND, providerInstanceId };
+  }
+
+  const provider = providers.find((candidate) => candidate.enabled !== false);
+
+  return provider
+    ? { kind: PROVIDER_SELECTION_RESULT_KIND.SELECTED, provider }
+    : { kind: PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED };
 }
 
 async function executeDirectAttempt(input: {
@@ -111,7 +148,7 @@ async function executeDirectAttempt(input: {
         code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
         message: 'Target transport execution failed.',
       },
-      outcome: 'gateway-error',
+      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR,
     };
 
     await releaseBestEffort(input.provider, input.lease, result);

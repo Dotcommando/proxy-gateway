@@ -1,3 +1,5 @@
+import { PROXY_ATTEMPT_RESULT_OUTCOME } from '../../constants';
+
 export interface GatewayExecutionContext {
   tenantId?: string;
   useCase?: string;
@@ -69,7 +71,7 @@ export interface ProxyAttemptContext {
 }
 
 export interface ProxyAttemptResult {
-  outcome: 'success' | 'gateway-error';
+  outcome: PROXY_ATTEMPT_RESULT_OUTCOME;
   response?: GatewayTargetResponse;
   error?: {
     code: string;

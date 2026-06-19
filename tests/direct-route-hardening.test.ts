@@ -4,6 +4,7 @@ import {
   createProxyGateway,
   type GatewayTargetRequest,
   type GatewayTargetResponse,
+  PROXY_ATTEMPT_RESULT_OUTCOME,
   type ProxyAttemptResult,
   type ProxyProviderInstance,
   RESPONSE_CODE,
@@ -45,7 +46,7 @@ describe('direct route execution hardening', () => {
           code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
           message: 'Target transport execution failed.',
         },
-        outcome: 'gateway-error',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR,
       },
     ]);
   });

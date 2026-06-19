@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   createProxyGateway,
   type GatewayTargetRequest,
+  PROXY_ATTEMPT_RESULT_OUTCOME,
   type ProxyAttemptResult,
   type ProxyProviderInstance,
   type TargetTransportPort,
@@ -121,7 +122,7 @@ describe('public API', () => {
     expect(acquiredTargets[0]?.fetch).toEqual({ redirect: 'manual' });
     expect(releasedResults).toEqual([
       {
-        outcome: 'success',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
         response: {
           body: {
             kind: 'text',
