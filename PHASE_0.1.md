@@ -14,6 +14,7 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/adapters/outbound`
 - `src/app`
 - `src/app/buffering`
+- `src/app/classification`
 - `src/app/envelopes`
 - `src/app/normalization`
 - `src/app/pipeline`
@@ -297,7 +298,7 @@ Green:
 Verify:
 - Pipeline tests pass.
 
-## 11. Execution Planner and Requirements
+## 11. Execution Planner and Requirements - Done
 
 Detailed scope:
 - Keep planning orchestration in `src/app/planning`; keep provider capability/domain contracts in outbound ports and domain models.
@@ -318,6 +319,20 @@ Detailed scope:
 - Capability mismatch/no viable provider should return a stable planner result code, represented by package enums.
 - Step 11 introduces planner-owned provider selection. Full removal or narrowing of the temporary public `providerSelection.providerInstanceId` bridge stays in step 19 after the full direct-route flow is wired through the planner.
 - Keep route-chain, forward-proxy transport support, retry execution, and timeout behavior out of this step unless needed only as inert plan data.
+
+Implemented:
+- Added `src/app/planning/ExecutionPlanner`.
+- Added `PLANNER_RESULT_KIND`, `PROXY_PLAN_KIND`, `PROXY_PROTOCOL`, `PROXY_DNS_MODE`, `PROXY_NETWORK_TYPE`, and `RESPONSE_CODE.NO_PLANNABLE_PROVIDER`.
+- Refined the step 10 `ProxyExecutionPlan` placeholder with `kind`, capability snapshots, provider kind, and typed requirements.
+- Refined provider capabilities enough for v0.1 planning: protocols, network types, and DNS modes.
+- Implemented fallback attempt ordering.
+- Implemented explicit provider instance selection by id.
+- Implemented implicit provider selection that skips disabled providers.
+- Implemented unknown/disabled explicit provider rejection with `PROVIDER_INSTANCE_NOT_FOUND`.
+- Implemented protocol, network type, and DNS mode filtering before execution.
+- Preserved `socks5h` and `dns.resolution: "proxy"` requirements without downgrade.
+- Ensured provider capabilities are read during planning and `acquire()` is not called.
+- Proved the temporary direct provider-selection hook can be represented as planner-owned provider choice.
 
 Red:
 - Add tests that planner result kinds and stable rejection codes use package enums.
@@ -345,6 +360,7 @@ Verify:
 
 Detailed scope:
 - This step is about route contracts and transport handoff only. It must not implement provider-specific adapters, SOCKS clients, HTTP CONNECT tunneling, or actual proxy networking.
+- Reuse the protocol and DNS enums introduced in step 11. Do not create a second protocol/DNS model for routes.
 - Extend the common outbound route model from direct-only to include:
   - `ForwardProxyRoute`;
   - `RouteChain`;
@@ -358,6 +374,7 @@ Detailed scope:
 - The target transport port receives the provider route unchanged. Translation into provider-specific syntax belongs outside the core.
 - Unsupported routes should be classified with a stable enum/code at the transport/attempt boundary, but this step only needs enough classification shape to test route support rejection.
 - Route credentials and auth tokens must be representable but must not appear in diagnostics or event metadata.
+- Keep full `ResultClassifier` behavior in step 14; this step may add only the minimal unsupported-route result enum/code needed by route model tests.
 
 Red:
 - Add tests that providers can return `forward-proxy` routes for supported protocols.
@@ -384,7 +401,7 @@ Detailed scope:
 - Keep retry decision logic in `src/app/retry`; keep classification itself in step 14.
 - This step decides whether another already-planned attempt may run. It should not execute attempts, acquire leases, or classify raw errors.
 - Inputs should be already-classified attempt outcomes, request method/body replayability, route retry policy, retry safety policy, and attempt/fallback position.
-- Use enums for retry conditions and retry decision kinds.
+- Use enums for retry conditions and retry decision kinds. If this step needs attempt outcome values before step 14, extend the existing `PROXY_ATTEMPT_RESULT_OUTCOME` enum rather than introducing a parallel outcome enum.
 - Default behavior must stay safe:
   - target HTTP statuses are not retried by default;
   - unsafe methods are not retried by default;
@@ -393,6 +410,7 @@ Detailed scope:
   - caller abort and total gateway timeout are never retried.
 - This step should distinguish "retry same route/provider attempt" from "fallback to next planned attempt" where the plan has another attempt available.
 - Response streaming already started remains non-retryable; full streamed-response handling can stay in later response streaming work.
+- Keep retry decision output small and executable by a later attempt executor: decision kind, optional retry condition, next attempt index/provider id where applicable, and reason/code.
 
 Red:
 - Add tests that retry condition enums and retry decision enums are used instead of inline string literals.
@@ -418,15 +436,39 @@ Verify:
 
 ## 14. Result Classification
 
+Detailed scope:
+- Keep result classification in `src/app/classification`.
+- This step converts already-observed attempt data into stable gateway taxonomy. It does not decide whether to retry; retry remains step 13.
+- Expand or replace the provisional `PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS` / `GATEWAY_ERROR` values from earlier direct-route slices with the final outcome enum values, preserving or updating existing tests intentionally.
+- Classifier inputs should be explicit and testable:
+  - target HTTP response status;
+  - target transport/network error kind;
+  - proxy auth/connection/timeout error kind;
+  - gateway timeout;
+  - caller abort;
+  - policy rejection;
+  - request body replayability failure;
+  - response stream already started;
+  - unsupported route.
+- Target HTTP statuses are classified for retry policy decisions but must not become service errors by default.
+- Classifier output should include the attempt outcome enum, optional retry condition enum, stable service error code/status where the failure is service-level, and safe diagnostic metadata.
+- Preserve best-effort provider `release()` behavior: release should receive the final classified `ProxyAttemptResult` without release failures masking the response/error returned to the caller.
+- Keep envelope building integration narrow: add mapping helpers only where needed by tests; full gateway wiring remains in later full-flow steps.
+
 Red:
 - Add classification tests for target HTTP status, target network error, target timeout, proxy auth error, proxy connection error, proxy timeout, gateway timeout, caller abort, policy rejection, and unsupported route.
 - Add tests that replace the step 6 provisional `TARGET_TRANSPORT_ERROR` / `PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR` handling with the final result taxonomy where possible, without regressing best-effort `release()` behavior.
+- Add tests that target HTTP 4xx/5xx statuses are not service errors by default but expose retry condition values for retry policy.
+- Add tests that caller abort and gateway timeout are not retryable conditions.
+- Add tests that diagnostic metadata does not include route credentials, target authorization headers, or cookies.
 
 Green:
 - Implement `ResultClassifier`.
 - Add stable service error codes and statuses.
 - Map classified attempt results into response envelopes.
 - Keep `ProxyAttemptResult.outcome` backed by enum values.
+- Expand `PROXY_ATTEMPT_RESULT_OUTCOME` to the final v0.1 taxonomy or provide a deliberate compatibility alias if a rename is unavoidable.
+- Keep retry decisions out of the classifier; expose retry condition data only.
 
 Verify:
 - Classifier tests pass.

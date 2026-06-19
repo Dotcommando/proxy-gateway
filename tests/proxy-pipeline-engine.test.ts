@@ -5,6 +5,7 @@ import {
   PIPELINE_DECISION_KIND,
   PIPELINE_PHASE,
   PIPELINE_RESULT_KIND,
+  PROXY_PLAN_KIND,
   RESPONSE_CODE,
 } from '../src/constants';
 import type {
@@ -45,6 +46,7 @@ const createPlan = (providerInstanceId = 'provider-a'): ProxyExecutionPlan => ({
       providerInstanceId,
     },
   ],
+  kind: PROXY_PLAN_KIND.FALLBACK,
 });
 const createStep = (
   type: string,

@@ -59,6 +59,7 @@ export const OCTET_STREAM_CONTENT_TYPE = 'application/octet-stream';
 export enum RESPONSE_CODE {
   INVALID_PROXY_FETCH_REQUEST = 'INVALID_PROXY_FETCH_REQUEST',
   NO_PROVIDER_AVAILABLE = 'NO_PROVIDER_AVAILABLE',
+  NO_PLANNABLE_PROVIDER = 'NO_PLANNABLE_PROVIDER',
   NO_ROUTE_MATCHED = 'NO_ROUTE_MATCHED',
   PIPELINE_STEP_NOT_FOUND = 'PIPELINE_STEP_NOT_FOUND',
   PROVIDER_INSTANCE_NOT_FOUND = 'PROVIDER_INSTANCE_NOT_FOUND',
@@ -114,4 +115,38 @@ export enum PIPELINE_RESULT_KIND {
   REJECTED = 'rejected',
   SKIPPED = 'skipped',
   STEP_NOT_FOUND = 'step-not-found',
+}
+
+export enum PLANNER_RESULT_KIND {
+  PLANNED = 'planned',
+  REJECTED = 'rejected',
+}
+
+export enum PROXY_PLAN_KIND {
+  FALLBACK = 'fallback',
+}
+
+export enum PROXY_PROTOCOL {
+  HTTP = 'http',
+  HTTPS = 'https',
+  SOCKS4 = 'socks4',
+  SOCKS5 = 'socks5',
+  SOCKS5H = 'socks5h',
+}
+
+export enum PROXY_DNS_MODE {
+  ANY = 'any',
+  GATEWAY = 'gateway',
+  PROXY = 'proxy',
+}
+
+export enum PROXY_NETWORK_TYPE {
+  CUSTOM = 'custom',
+  DATACENTER = 'datacenter',
+  DIRECT = 'direct',
+  ISP = 'isp',
+  MOBILE = 'mobile',
+  RESIDENTIAL = 'residential',
+  STATIC_RESIDENTIAL = 'static-residential',
+  TOR = 'tor',
 }

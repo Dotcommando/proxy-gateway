@@ -1,4 +1,11 @@
-import { PIPELINE_DECISION_KIND, PROXY_ATTEMPT_RESULT_OUTCOME } from '../../constants';
+import {
+  PIPELINE_DECISION_KIND,
+  PROXY_ATTEMPT_RESULT_OUTCOME,
+  PROXY_DNS_MODE,
+  PROXY_NETWORK_TYPE,
+  PROXY_PLAN_KIND,
+  PROXY_PROTOCOL,
+} from '../../constants';
 
 export interface GatewayExecutionContext {
   tenantId?: string;
@@ -41,7 +48,25 @@ export interface GatewayTargetRequest {
   fetch: GatewayFetchMetadata;
 }
 
-export type ProxyRouteRequirements = Record<string, unknown>;
+export type ProxyProtocol = PROXY_PROTOCOL | (string & {});
+
+export type ProxyDnsMode = PROXY_DNS_MODE | (string & {});
+
+export type ProxyNetworkType = PROXY_NETWORK_TYPE | (string & {});
+
+export interface ProxyDnsRequirements {
+  forbidLocalDnsLeak?: boolean;
+  resolution: ProxyDnsMode;
+}
+
+export interface ProxyRouteRequirements {
+  dns?: ProxyDnsRequirements;
+  excludeProviderInstanceIds?: string[];
+  networkTypes?: ProxyNetworkType[];
+  protocols?: ProxyProtocol[];
+  providerInstanceIds?: string[];
+  [requirementName: string]: unknown;
+}
 
 export interface GatewayFacts {
   client?: {
@@ -75,15 +100,18 @@ export interface ProxyProviderCandidate {
 }
 
 export interface ProxyExecutionAttempt {
+  capabilities?: ProxyProviderCapabilities;
   maxAttempts?: number;
   metadata?: Record<string, unknown>;
   providerInstanceId: string;
+  providerKind?: string;
   requirements?: ProxyRouteRequirements;
   timeoutMs?: number;
 }
 
 export interface ProxyExecutionPlan {
   attempts: ProxyExecutionAttempt[];
+  kind: PROXY_PLAN_KIND;
   metadata?: Record<string, unknown>;
   stopOnTargetHttpError?: boolean;
   totalTimeoutMs?: number;
@@ -226,7 +254,17 @@ export interface ProxyAcquireInput {
   signal: AbortSignal;
 }
 
-export type ProxyProviderCapabilities = Record<string, unknown>;
+export interface ProxyProviderDnsCapabilities {
+  modes?: ProxyDnsMode[];
+  remoteRequired?: boolean;
+}
+
+export interface ProxyProviderCapabilities {
+  dns?: ProxyProviderDnsCapabilities;
+  networkTypes?: ProxyNetworkType[];
+  protocols?: ProxyProtocol[];
+  [capabilityName: string]: unknown;
+}
 
 export interface ProxyProviderAdapter {
   readonly kind: string;
