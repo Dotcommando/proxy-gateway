@@ -177,13 +177,18 @@ Green:
 Verify:
 - Multiple-provider tests pass.
 
-## 8. Matchers
+## 8. Matchers - Done
 
-Implemented so far:
+Implemented:
 - Added `src/domain/matching` for pure dependency-free matching primitives instead of a generic `src/utils` bucket.
 - Added a focused glob contract test suite recreated for this package's route-matching needs, without copying third-party fixtures or keeping external test links in the repo.
 - Implemented `matchGlob()` and `hasGlobMagic()` for literal segments, `*`, `?`, full-segment `**`, character classes/ranges, negated classes, escaping, and explicit case-insensitive matching.
 - Kept brace expansion and extglob unsupported and literal.
+- Added `STRING_MATCHER_KIND` for closed matcher kinds.
+- Added generic string matcher compilation and matching for exact, prefix, suffix, glob, declarative regexp, programmatic `RegExp`, and predicate matchers.
+- Added host normalization for case, trailing dots, explicit ports, and URL input.
+- Added label-aware suffix host matching.
+- Added target URL normalization, path matching against URL pathnames, and `.onion` detection.
 
 Red:
 - Keep the focused glob tests green while adding the broader route matcher surface.

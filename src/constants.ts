@@ -74,3 +74,11 @@ export enum PROXY_ATTEMPT_RESULT_OUTCOME {
   GATEWAY_ERROR = 'gateway-error',
   SUCCESS = 'success',
 }
+
+export enum STRING_MATCHER_KIND {
+  EXACT = 'exact',
+  GLOB = 'glob',
+  PREFIX = 'prefix',
+  REGEXP = 'regexp',
+  SUFFIX = 'suffix',
+}
