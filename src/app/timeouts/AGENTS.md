@@ -17,7 +17,7 @@ Rules:
 - If total timeout expires, all attempts stop and no fallback starts.
 - If one attempt timeout expires, fallback may continue only when retry policy allows.
 - The total gateway timeout scope is owned by the request flow above attempt execution.
-- AttemptExecutor creates per-attempt timeout scopes from the total/caller parent signal.
+- AttemptExecutor creates a fresh per-attempt timeout scope from the total/caller parent signal for each same-attempt retry and fallback attempt.
 - provider.acquire(), lease verification, and target transport all receive the attempt signal.
 ```
 

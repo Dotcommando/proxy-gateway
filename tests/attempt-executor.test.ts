@@ -9,6 +9,7 @@ import {
   PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_GEO_STRICTNESS,
   PROXY_PLAN_KIND,
+  PROXY_PROTOCOL,
   PROXY_PROVIDER_GEO_MODE,
   PROXY_ROUTE_KIND,
   type ProxyAcquireInput,
@@ -18,6 +19,7 @@ import {
   type ProxyProviderInstance,
   type ProxyRoute,
   RESPONSE_CODE,
+  RETRY_CONDITION,
   type TargetTransportPort,
 } from '../src';
 import { BodyBufferManager } from '../src/app/buffering/body-buffer-manager';
@@ -424,7 +426,73 @@ describe('AttemptExecutor', () => {
     ]);
   });
 
-  it('executes only the first planned attempt until retry and fallback are introduced', async () => {
+  it('falls back to the next planned attempt when retry policy allows it', async () => {
+    const acquiredProviderIds: string[] = [];
+    const releasedResults: ProxyAttemptResult[] = [];
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({
+              route: forwardProxyRoute('proxy-a.example'),
+            });
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({
+              providerInstanceId: 'provider-b',
+              route: forwardProxyRoute('proxy-b.example'),
+            });
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+      ],
+      transport: {
+        execute: async (input) => {
+          if (input.route.kind === PROXY_ROUTE_KIND.FORWARD_PROXY && input.route.host === 'proxy-a.example') {
+            throw new Error('provider-a target failed');
+          }
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-b']);
+    expect(releasedResults.map((releasedResult) => releasedResult.outcome)).toEqual([
+      PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_NETWORK_ERROR,
+      PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
+    ]);
+  });
+
+  it('retries the same planned attempt until maxAttempts is reached', async () => {
+    let transportCalls = 0;
     const acquiredProviderIds: string[] = [];
     const executor = createExecutor({
       providers: [
@@ -433,6 +501,85 @@ describe('AttemptExecutor', () => {
             acquiredProviderIds.push(input.providerInstanceId);
 
             return directLease();
+          },
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          transportCalls += 1;
+
+          if (transportCalls === 1) {
+            throw new Error('first target failure');
+          }
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          maxAttempts: 2,
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-a']);
+    expect(transportCalls).toBe(2);
+  });
+
+  it('does not retry unsafe POST without the required idempotency key', async () => {
+    let acquireCalls = 0;
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async () => {
+            acquireCalls += 1;
+
+            return directLease();
+          },
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          throw new Error('target failed');
+        },
+      },
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          maxAttempts: 2,
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+        },
+      ]),
+      target: targetRequest({ method: 'POST' }),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.FAILED);
+    expect(acquireCalls).toBe(1);
+  });
+
+  it('does not fallback after caller abort while acquisition is active', async () => {
+    const caller = new AbortController();
+    const acquiredProviderIds: string[] = [];
+    let acquireSignal: AbortSignal | undefined;
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+            acquireSignal = input.signal;
+
+            return neverSettlingOperation();
           },
         }),
         directProvider({
@@ -446,12 +593,14 @@ describe('AttemptExecutor', () => {
       ],
       transport: okTransport(),
     });
-    const result = await executor.execute({
+    const resultPromise = executor.execute({
       ...baseInput(),
+      parentSignal: caller.signal,
       plan: plan([
         {
           providerInstanceId: 'provider-a',
           providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
         },
         {
           providerInstanceId: 'provider-b',
@@ -460,8 +609,144 @@ describe('AttemptExecutor', () => {
       ]),
     });
 
-    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    await waitUntil(() => acquireSignal !== undefined);
+    caller.abort('caller stopped');
+
+    const result = await resultPromise;
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.FAILED);
     expect(acquiredProviderIds).toEqual(['provider-a']);
+  });
+
+  it('does not fallback after total timeout while acquisition is active', async () => {
+    jest.useFakeTimers();
+
+    const timeoutController = new TimeoutController();
+    const totalScope = timeoutController.createTotalScope({
+      callerSignal: new AbortController().signal,
+      timeoutMs: 10,
+    });
+    const acquiredProviderIds: string[] = [];
+    let acquireSignal: AbortSignal | undefined;
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+            acquireSignal = input.signal;
+
+            return neverSettlingOperation();
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+        }),
+      ],
+      timeoutController,
+      transport: okTransport(),
+    });
+    const resultPromise = executor.execute({
+      ...baseInput(),
+      parentSignal: totalScope.signal,
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.GATEWAY_TIMEOUT],
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    await waitUntil(() => acquireSignal !== undefined);
+    await jest.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+
+    totalScope.dispose();
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.FAILED);
+    expect(acquiredProviderIds).toEqual(['provider-a']);
+  });
+
+  it('can fallback after per-attempt timeout when retry policy allows it', async () => {
+    jest.useFakeTimers();
+
+    const acquiredProviderIds: string[] = [];
+    const releasedResults: ProxyAttemptResult[] = [];
+    let transportSignal: AbortSignal | undefined;
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease();
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+      ],
+      transport: {
+        execute: async (input) => {
+          if (input.route.kind === PROXY_ROUTE_KIND.DIRECT && input.requestId === 'request-1') {
+            transportSignal = input.signal;
+
+            if (acquiredProviderIds.length === 1) {
+              return neverSettlingOperation();
+            }
+          }
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const resultPromise = executor.execute({
+      ...baseInput(),
+      attemptTimeoutMs: 10,
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.TARGET_TIMEOUT],
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    await waitUntil(() => transportSignal !== undefined);
+    await jest.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-b']);
+    expect(releasedResults.map((releasedResult) => releasedResult.outcome)).toEqual([
+      PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_TIMEOUT,
+      PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
+    ]);
   });
 });
 
@@ -561,16 +846,30 @@ function okTargetResponse(): GatewayTargetResponse {
   };
 }
 
-function targetRequest(): GatewayTargetRequest {
+function targetRequest(
+  options: {
+    headers?: Array<[string, string]>;
+    method?: string;
+  } = {},
+): GatewayTargetRequest {
   return {
     body: {
       kind: 'none',
       replayability: 'replayable',
     },
     fetch: {},
-    headers: [],
-    method: 'GET',
+    headers: options.headers ?? [],
+    method: options.method ?? 'GET',
     url: 'https://example.com/resource',
+  };
+}
+
+function forwardProxyRoute(host: string): ProxyRoute {
+  return {
+    host,
+    kind: PROXY_ROUTE_KIND.FORWARD_PROXY,
+    port: 8080,
+    protocol: PROXY_PROTOCOL.HTTP,
   };
 }
 

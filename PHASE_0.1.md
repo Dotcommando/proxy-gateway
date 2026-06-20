@@ -1066,6 +1066,90 @@ Verify:
 - Mock exit verification tests pass.
 - Existing attempt executor core, retry, timeout, classifier, planner, target access, and redaction tests still pass.
 
+### 23.1 Attempt Executor Retry/Fallback Loop - Done
+
+Scope:
+- Add retry-loop state to `AttemptExecutor` without verifier coordination.
+- Execute fallback attempts in planned declaration order.
+- Delegate same-attempt retry and fallback decisions to `RetryDecider`.
+- Respect `maxAttempts`, attempt `retryOn`, body replayability, unsafe method policy, caller abort, total timeout, and per-attempt timeout outcomes.
+- Keep provider acquire/release, transport execution, response buffering, timeout classification, and release events behavior from step 22.
+- Do not call `ProxyExitVerifierPort` in this substep.
+
+Implemented:
+- Added retry-loop state to `AttemptExecutor`.
+- Delegated same-attempt retry and fallback decisions to `RetryDecider`.
+- Executed fallback attempts in planned declaration order.
+- Supported same-attempt retry with `maxAttempts`.
+- Preserved unsafe-method safety so `POST` without idempotency key does not retry.
+- Ensured caller abort and total timeout do not fallback.
+- Allowed per-attempt timeout fallback only when retry policy allows it.
+- Kept lease verification out of this substep.
+
+Red:
+- Add tests that a planned fallback chain executes in declared order when `RetryDecider` allows fallback.
+- Add tests that same-attempt retry uses `maxAttempts` and does not acquire more than allowed.
+- Add tests that `POST` without the required idempotency key does not start a second acquire even when retry conditions match.
+- Add tests that caller abort and total timeout prevent fallback.
+- Add tests that per-attempt timeout may fallback only when retry policy allows it.
+- Add tests that releases still happen for each acquired lease across same-attempt retry and fallback.
+
+Green:
+- Inject or construct `RetryDecider` for `AttemptExecutor`.
+- Replace first-attempt-only execution with retry-loop state.
+- Reuse existing classified attempt results and retry-condition hints.
+- Keep verifier and geo mismatch handling out of this substep.
+
+Verify:
+- Attempt executor retry/fallback tests pass.
+- Existing attempt executor core, retry decider, timeout, classifier, and direct-route hardening tests still pass.
+
+### 23.2 Lease-Based Exit Verification
+
+Scope:
+- Add mock-verifier coordination through `ProxyExitVerifierPort`.
+- Run verification after provider `acquire()` and before target transport execution when `attempt.verification.verifyExit` is true.
+- Use `attempt.requirements.geo` as expected geo requirements.
+- Use the active attempt `AbortSignal`.
+- Do not add real HTTP probe, DNS, GeoIP, Tor, or provider-specific integrations.
+
+Red:
+- Add tests that verification receives request id, lease, route, expected geo requirements, and active attempt signal.
+- Add tests that target transport is not executed after verification rejection.
+- Add tests that strict country mismatch produces `PROXY_GEO_MISMATCH`.
+- Add tests that verifier failure without trustworthy result produces `EXIT_VERIFICATION_FAILED`.
+- Add tests that verification-sensitive diagnostics are redacted.
+- Add tests that release happens for verification mismatch and verification failure.
+
+Green:
+- Extend `AttemptExecutor` with verifier coordination.
+- Map verification mismatch/failure through `ResultClassifier` and existing retry taxonomy.
+- Keep retry/fallback decisions delegated to `RetryDecider`.
+
+Verify:
+- Mock exit verification tests pass.
+- Existing retry/fallback tests still pass.
+
+### 23.3 Verification Retry/Fallback Policy Integration
+
+Scope:
+- Let `RetryDecider` control retry/fallback after `PROXY_GEO_MISMATCH` and `EXIT_VERIFICATION_FAILED`.
+- Ensure proxy auth errors skip same-provider retry and may fallback to another provider when policy allows it.
+- Ensure response-stream-already-started prevents retry/fallback.
+
+Red:
+- Add tests that strict geo mismatch retries only when `RETRY_CONDITION.PROXY_GEO_MISMATCH` is configured.
+- Add tests that `EXIT_VERIFICATION_FAILED` retries only when configured.
+- Add tests that proxy auth error skips same-provider retry and can fallback to another provider.
+- Add tests that `RESPONSE_STREAM_ALREADY_STARTED` prevents retry/fallback.
+
+Green:
+- Wire verification outcomes into the retry-loop path.
+- Keep all retry/fallback decisions in `RetryDecider`.
+
+Verify:
+- Full step 23 retry/fallback/verification tests pass.
+
 ## 24. Full Direct-Route Gateway Flow
 
 Red:

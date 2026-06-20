@@ -15,6 +15,7 @@ The active task file should contain the task description, decomposition, Red/Gre
 - describe what was implemented;
 - reassess the next three steps;
 - split or clarify any upcoming step that is too large or ambiguous;
+- automatically check whether nested AGENTS.md files need updates;
 - update nested AGENTS.md files when a new durable architecture rule appears.
 ```
 

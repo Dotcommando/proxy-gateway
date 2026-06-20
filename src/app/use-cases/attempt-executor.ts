@@ -2,6 +2,7 @@ import {
   ATTEMPT_EXECUTOR_RESULT_KIND,
   GATEWAY_EVENT_TYPE,
   PROXY_ATTEMPT_RESULT_OUTCOME,
+  RETRY_DECISION_KIND,
 } from '../../constants';
 import type {
   GatewayEvent,
@@ -17,6 +18,7 @@ import type {
 } from '../../ports/outbound';
 import { BodyBufferLimitExceededError, BodyBufferManager } from '../buffering/body-buffer-manager';
 import { type ClassifiedAttempt, ResultClassifier } from '../classification';
+import { RetryDecider } from '../retry';
 import {
   mapTimeoutObservationToOutcome,
   readTimeoutObservation,
@@ -27,6 +29,7 @@ export interface AttemptExecutorOptions {
   bodyBufferManager: BodyBufferManager;
   providers: ProxyProviderInstance[];
   resultClassifier: ResultClassifier;
+  retryDecider?: RetryDecider;
   timeoutController: TimeoutController;
   transport: TargetTransportPort;
 }
@@ -59,6 +62,7 @@ export class AttemptExecutor {
   readonly #bodyBufferManager: BodyBufferManager;
   readonly #providers: ProxyProviderInstance[];
   readonly #resultClassifier: ResultClassifier;
+  readonly #retryDecider: RetryDecider;
   readonly #timeoutController: TimeoutController;
   readonly #transport: TargetTransportPort;
 
@@ -66,33 +70,87 @@ export class AttemptExecutor {
     this.#bodyBufferManager = options.bodyBufferManager;
     this.#providers = options.providers;
     this.#resultClassifier = options.resultClassifier;
+    this.#retryDecider = options.retryDecider ?? new RetryDecider();
     this.#timeoutController = options.timeoutController;
     this.#transport = options.transport;
   }
 
   async execute(input: AttemptExecutorInput): Promise<AttemptExecutorResult> {
-    const attempt = input.plan.attempts[0];
+    let attemptIndex = 0;
+    let attemptNumber = 1;
+    const events: GatewayEvent[] = [];
 
-    if (attempt === undefined) {
-      return this.#failed({
-        classified: this.#resultClassifier.classifyFailure({
-          message: 'Execution plan does not contain an attempt.',
-          outcome: PROXY_ATTEMPT_RESULT_OUTCOME.REJECTED_BY_POLICY,
-          target: input.target,
-        }),
-        events: [],
+    while (true) {
+      const attempt = input.plan.attempts[attemptIndex];
+
+      if (attempt === undefined) {
+        return this.#failed({
+          classified: this.#resultClassifier.classifyFailure({
+            message: 'Execution plan does not contain an attempt.',
+            outcome: PROXY_ATTEMPT_RESULT_OUTCOME.REJECTED_BY_POLICY,
+            target: input.target,
+          }),
+          events,
+        });
+      }
+
+      const result = await this.#executePlannedAttempt({
+        attempt,
+        attemptIndex,
+        attemptNumber,
+        context: input.context,
+        parentSignal: input.parentSignal,
+        requestId: input.requestId,
+        target: input.target,
+        ...(input.attemptTimeoutMs !== undefined && { attemptTimeoutMs: input.attemptTimeoutMs }),
       });
-    }
 
+      events.push(...result.events);
+
+      const decision = this.#retryDecider.decide({
+        attemptIndex,
+        attemptNumber,
+        outcome: result.classified.attemptResult.outcome,
+        plan: input.plan,
+        target: input.target,
+        ...(result.classified.retryCondition !== undefined && {
+          retryCondition: result.classified.retryCondition,
+        }),
+      });
+
+      if (decision.kind === RETRY_DECISION_KIND.RETRY_SAME_ATTEMPT) {
+        attemptNumber += 1;
+        continue;
+      }
+      if (decision.kind === RETRY_DECISION_KIND.FALLBACK_TO_NEXT_ATTEMPT) {
+        attemptIndex = decision.attemptIndex;
+        attemptNumber = 1;
+        continue;
+      }
+
+      return withEvents(result, events);
+    }
+  }
+
+  async #executePlannedAttempt(input: {
+    attempt: ProxyExecutionAttempt;
+    attemptIndex: number;
+    attemptNumber: number;
+    attemptTimeoutMs?: number;
+    context: GatewayExecutionContext;
+    parentSignal: AbortSignal;
+    requestId: string;
+    target: GatewayTargetRequest;
+  }): Promise<AttemptExecutorResult> {
     const provider = this.#providers.find(
-      (candidate) => candidate.id === attempt.providerInstanceId && candidate.enabled !== false,
+      (candidate) => candidate.id === input.attempt.providerInstanceId && candidate.enabled !== false,
     );
 
     if (provider === undefined) {
       return this.#failed({
-        attempt,
+        attempt: input.attempt,
         classified: this.#resultClassifier.classifyFailure({
-          message: `Provider instance "${attempt.providerInstanceId}" was not found or is disabled.`,
+          message: `Provider instance "${input.attempt.providerInstanceId}" was not found or is disabled.`,
           outcome: PROXY_ATTEMPT_RESULT_OUTCOME.REJECTED_BY_POLICY,
           target: input.target,
         }),
@@ -106,8 +164,9 @@ export class AttemptExecutor {
     });
 
     try {
-      return await this.#executeFirstAttempt({
-        attempt,
+      return await this.#executeAttemptWithScope({
+        attempt: input.attempt,
+        attemptIndex: input.attemptIndex,
         attemptSignal: attemptScope.signal,
         context: input.context,
         provider,
@@ -120,8 +179,9 @@ export class AttemptExecutor {
     }
   }
 
-  async #executeFirstAttempt(input: {
+  async #executeAttemptWithScope(input: {
     attempt: ProxyExecutionAttempt;
+    attemptIndex: number;
     attemptSignal: AbortSignal;
     context: GatewayExecutionContext;
     provider: ProxyProviderInstance;
@@ -134,7 +194,7 @@ export class AttemptExecutor {
     try {
       lease = await this.#timeoutController.race(
         input.provider.adapter.acquire({
-          attempt: { index: 0 },
+          attempt: { index: input.attemptIndex },
           context: input.context,
           providerInstanceId: input.provider.id,
           requestId: input.requestId,
@@ -270,6 +330,20 @@ export class AttemptExecutor {
 
     return result;
   }
+}
+
+function withEvents(result: AttemptExecutorResult, events: GatewayEvent[]): AttemptExecutorResult {
+  if (result.kind === ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED) {
+    return {
+      ...result,
+      events,
+    };
+  }
+
+  return {
+    ...result,
+    events,
+  };
 }
 
 async function releaseBestEffort(

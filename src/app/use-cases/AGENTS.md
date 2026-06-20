@@ -39,6 +39,10 @@ It must pass `requestId`, provider instance id, attempt context, normalized targ
 
 `release()` receives the classified `ProxyAttemptResult`. Release failures are recorded as `GatewayEvent`s and must not mask the completed or failed attempt result.
 
+When retry/fallback is enabled, `AttemptExecutor` keeps retry-loop state but delegates every same-attempt retry and fallback decision to `RetryDecider`. It must evaluate the classified result of each completed or failed attempt before deciding whether to return it, retry the same attempt, or move to a fallback attempt.
+
+Gateway events from earlier attempts must be accumulated and returned with the final executor result.
+
 ## Retry, Fallback, and Verification
 
 Same-attempt retry and fallback traversal must be driven by `RetryDecider`.
