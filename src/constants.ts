@@ -317,6 +317,11 @@ export enum PIPELINE_PHASE {
 }
 
 export enum PIPELINE_STEP_TYPE {
+  PROVIDERS_EXCLUDE = 'providers.exclude',
+  PROVIDERS_INCLUDE = 'providers.include',
+  PROVIDERS_PRIORITY = 'providers.priority',
+  PROVIDERS_TAGS = 'providers.tags',
+  PROVIDERS_WEIGHTED = 'providers.weighted',
   REQUIREMENTS_GEO = 'requirements.geo',
   REQUIREMENTS_IDENTITY = 'requirements.identity',
   REQUIREMENTS_MERGE = 'requirements.merge',

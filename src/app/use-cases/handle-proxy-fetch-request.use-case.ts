@@ -19,6 +19,7 @@ import type {
   GatewayTargetRequest,
   ProxyDecisionState,
   ProxyExecutionPlan,
+  ProxyGatewayServices,
   ProxyProviderInstance,
   ProxyRouteRequirements,
   ProxySessionRecord,
@@ -235,7 +236,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         initialState: state,
         pipeline,
         requestId,
-        services: {},
+        services: this.#createPipelineServices(),
         signal,
       });
 
@@ -268,6 +269,10 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       message: 'No configured pipeline selected an execution plan.',
       retryable: false,
     });
+  }
+
+  #createPipelineServices(): ProxyGatewayServices {
+    return this.#options.random === undefined ? {} : { random: this.#options.random };
   }
 
   async #planConfiguredRoute(
@@ -468,6 +473,7 @@ function createInitialPipelineState(
           providerKind: provider.adapter.kind,
           ...(provider.metadata === undefined ? {} : { metadata: provider.metadata }),
           ...(provider.priority === undefined ? {} : { priority: provider.priority }),
+          ...(provider.tags === undefined ? {} : { tags: [...provider.tags] }),
           ...(provider.weight === undefined ? {} : { weight: provider.weight }),
         },
       ];

@@ -140,6 +140,7 @@ export interface ProxyProviderCandidate {
   priority?: number;
   providerInstanceId: string;
   providerKind: string;
+  tags?: string[];
   weight?: number;
 }
 
@@ -430,6 +431,7 @@ export interface ProxyProviderInstance {
 
 export interface RandomPort {
   createId(): string;
+  nextFloat?(): number;
 }
 
 export interface TargetTransportExecuteInput {

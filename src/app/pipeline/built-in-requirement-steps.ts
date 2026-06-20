@@ -17,6 +17,7 @@ import type {
   ProxyVerificationRequirements,
 } from '../../ports/outbound';
 import { mergeProxyRouteRequirements } from '../planning';
+import { createBuiltInProviderSteps } from './built-in-provider-steps';
 import { ProxyPipelineStepRegistry } from './proxy-pipeline-step-registry';
 
 interface IParseSuccess<TValue> {
@@ -57,7 +58,7 @@ export function createBuiltInPipelineStepRegistry(
 ): ProxyPipelineStepRegistryPort {
   return new CompositePipelineStepRegistry(
     userRegistry,
-    new ProxyPipelineStepRegistry(createBuiltInRequirementSteps()),
+    new ProxyPipelineStepRegistry([...createBuiltInRequirementSteps(), ...createBuiltInProviderSteps()]),
   );
 }
 

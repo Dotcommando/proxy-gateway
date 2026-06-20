@@ -548,7 +548,7 @@ Next three steps reassessment:
 - Step 17 remains ready. `plan.fallback` should be a built-in step enum value and should use `ExecutionPlanner` rather than hand-building executable attempts.
 - Step 18 remains ready after Step 16-17. It should define final precedence now that route/default config, pipeline wiring, and built-in requirement steps all exist.
 
-## 16. Built-In Provider Selection And Ranking Steps
+## 16. Built-In Provider Selection And Ranking Steps - Completed
 
 Purpose:
 - Let pipelines declaratively include, exclude, and rank providers.
@@ -571,6 +571,19 @@ Verify:
 - Provider built-in step tests pass.
 - Multiple-provider tests still pass.
 
+Progress:
+- Added package enum values for provider built-ins: `providers.include`, `providers.exclude`, `providers.tags`, `providers.priority`, and `providers.weighted`.
+- Added built-in provider steps that filter or rank `ProxyDecisionState.candidates` by provider instance id, tags, priority, and weighted deterministic ordering.
+- Extended provider candidates with public `tags` copied from enabled provider instances; disabled providers are omitted from initial pipeline candidates.
+- Extended `RandomPort` with optional `nextFloat()` and passed configured `random` into pipeline services so weighted ranking can be deterministic in tests and user code.
+- Added unit and gateway tests for include/exclude/tag filtering, priority ranking, weighted ordering, invalid args, and disabled provider exclusion.
+- Checked nested AGENTS files and updated `src/app/pipeline/AGENTS.md` for provider built-in ownership and adapter-call restrictions.
+
+Next three steps reassessment:
+- Step 17 is ready, but should now consume the candidate list produced by Step 16. `plan.fallback` should default to current `state.candidates` when attempts do not specify providers, and should use `ExecutionPlanner` for provider validation/capability checks rather than trusting candidate order alone.
+- Step 18 is still needed. It should explicitly decide whether skipped pipelines fall through to route/default planning or whether any configured pipeline set is authoritative; current Step 14 behavior returns no-plan after all configured pipelines skip or complete without a plan.
+- Step 19 remains useful after Step 17 because route-level verification already merges into plans, but pipeline-produced verification needs a built-in plan path that can carry requirements into executable attempts.
+
 ## 17. Built-In Plan Steps
 
 Purpose:
@@ -583,6 +596,7 @@ Red:
 
 Green:
 - Implement `plan.fallback` built-in step.
+- Use current pipeline candidates as the default provider order when attempt args do not specify provider ids.
 - Reuse `ExecutionPlanner` for provider capability validation.
 - Keep retry/fallback behavior in `AttemptExecutor` and `RetryDecider`.
 
@@ -602,13 +616,14 @@ Red:
   - pipeline plan only;
   - route requirements plus pipeline plan;
   - pipeline rejection before route planning;
-  - default route when pipelines skip;
+  - configured-pipeline skip behavior, either falling through to default route or producing a stable no-plan error according to the finalized precedence rule;
   - no plan after pipelines and no default route.
 - Add tests for stable service errors when precedence produces no executable plan.
 
 Green:
 - Implement a single decision flow in the use-case.
 - Avoid duplicate planning logic between route and pipeline paths.
+- Decide whether configured pipelines are authoritative even when skipped, or whether skipped pipelines fall through to route/default planning.
 - Define whether direct `options.plan` bypasses route/pipeline config or is rejected when declarative config is present, then align Step 13 docs/tests with that choice.
 
 Verify:
