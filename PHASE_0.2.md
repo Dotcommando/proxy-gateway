@@ -204,7 +204,7 @@ Next three steps reassessment:
 - Step 7 is ready after Step 6. It should consume the session manager output in planner input without changing memory-store semantics.
 - Step 8 is ready after Step 7. It should persist records through `ProxySessionStorePort.setMany()` and rely on the store's no-reference-leak behavior rather than adding extra cloning in the write path.
 
-## 6. Session Manager Read Path
+## 6. Session Manager Read Path - Completed
 
 Purpose:
 - Resolve existing sticky sessions before provider planning/acquire.
@@ -228,6 +228,17 @@ Verify:
 - Session manager read-path tests pass.
 - Planner tests still pass.
 
+Progress:
+- Added `SessionManager` in `src/app/sessions` for read-path coordination.
+- Covered derived-key reads, enabled-provider pins, expired-record misses, optional expired-record cleanup, disabled/unknown provider misses, `requestNewIdentity`, and proof that provider adapters are not called.
+- `SessionManager` uses `SessionKeyFactory`, `ProxySessionStorePort`, required `expiresAt`, and provider-instance enabled state only.
+- Checked nested AGENTS files and updated `src/app/sessions/AGENTS.md` for read-path ownership and adapter-call restrictions.
+
+Next three steps reassessment:
+- Step 7 is ready. It should wire `SessionManager.read()` before planner provider selection and convert `HIT` results into provider constraints without changing planner capability validation.
+- Step 8 is ready after Step 7. It should write records using the same key derivation inputs that Step 7 reads, including provider instance id where provider-scoped keys are in use.
+- Step 9 remains ready. It should verify that identity requirements survive session-derived provider pinning and still reach `ProxyAcquireInput.requirements.identity`.
+
 ## 7. Session-Aware Planning
 
 Purpose:
@@ -241,6 +252,7 @@ Red:
 
 Green:
 - Wire session resolution into planning input before `ExecutionPlanner` selects providers.
+- Use `SessionManager.read()` for the read path and translate `HIT` into a provider-instance constraint.
 - Preserve provider capability checks for pinned providers.
 - Keep route/pipeline requirements structured.
 

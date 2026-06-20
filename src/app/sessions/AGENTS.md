@@ -7,3 +7,5 @@
 Use `PROXY_IDENTITY_ISOLATION_SCOPE` for isolation scope values. Missing scope components must remain explicit in derived keys so unrelated sessions do not collapse.
 
 Session-store persistence belongs behind `ProxySessionStorePort`. Store expiry interpretation, provider compatibility, and request-new-identity policy belong in app-level session coordination, not in provider adapters or transports.
+
+`SessionManager` owns the session read path. It derives candidate keys through `SessionKeyFactory`, reads through `ProxySessionStorePort`, treats expired records as misses, may clean up expired records when requested, and validates provider pins only by provider instance id plus enabled state. It must not call provider adapter methods such as `getCapabilities()`, `acquire()`, or `release()`.
