@@ -320,7 +320,7 @@ Detailed scope:
 - `socks5h` and `dns.resolution: "proxy"` must be preserved as requirements. The planner must not silently downgrade to `socks5` or gateway DNS.
 - Unknown explicit provider instance ids keep using `RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND`.
 - Capability mismatch/no viable provider should return a stable planner result code, represented by package enums.
-- Step 11 introduces planner-owned provider selection. Full removal or narrowing of the temporary public `providerSelection.providerInstanceId` bridge stays in step 23 after the full direct-route flow is wired through the planner.
+- Step 11 introduces planner-owned provider selection. Full removal or narrowing of the temporary public `providerSelection.providerInstanceId` bridge stays in step 24 after the full direct-route flow is wired through the planner.
 - Keep route-chain, forward-proxy transport support, retry execution, and timeout behavior out of this step unless needed only as inert plan data.
 
 Implemented:
@@ -354,7 +354,7 @@ Green:
 - Add the initial built-in `plan.fallback` step.
 - Reject impossible plans before execution.
 - Move provider capability snapshots into planner-owned selection so the use-case does not duplicate planning concerns.
-- Keep use-case integration scoped: introduce planner-owned selection now, remove or narrow the temporary public bridge later in step 23.
+- Keep use-case integration scoped: introduce planner-owned selection now, remove or narrow the temporary public bridge later in step 24.
 
 Verify:
 - Planner tests pass.
@@ -682,7 +682,7 @@ Green:
 - The redirect/final URL guard should accept the current/base URL when needed, so relative and protocol-relative redirect locations can be resolved before policy evaluation.
 - Apply default-deny rules to unsupported schemes, localhost, obvious local hostnames, local/private/link-local IPs, multicast IPs, unspecified IPs, IPv6 unique-local/link-local/loopback/unspecified IPs, and `.onion` hosts.
 - Apply already-provided resolved IP facts to policy evaluation without performing DNS resolution inside the guard.
-- Apply the guard before provider capability lookup/acquire/target execution in the current direct flow where doing so does not require the full step 23 orchestration.
+- Apply the guard before provider capability lookup/acquire/target execution in the current direct flow where doing so does not require the full step 24 orchestration.
 - Add reusable validation for supplied redirect/final URLs, but do not invent redirect metadata in target transport.
 - Return classified policy-rejection outcomes where practical. Reuse `REJECTED_BY_POLICY` intentionally if that is the current stable outcome, but keep target-access-specific reason codes stable.
 
@@ -886,6 +886,8 @@ Detailed scope:
 - Use package constants for part names, content-type prefixes, CRLF, binary content type, and stable multipart builder errors.
 - Ensure body-related headers cannot become stale after service-envelope or multipart body transformation.
 - Make the response format decision explicit. For v0.1, prefer multipart for binary response bodies when the service request `Accept` header allows `multipart/form-data`; otherwise use JSON base64 fallback for binary bodies.
+- The response format selector must read the original service request `Accept` header, not target request headers. Service transport headers and target headers remain separate.
+- If the service `Accept` header is missing, default to JSON response envelopes. If it explicitly allows neither JSON nor multipart for a shape that needs a body, return a stable service-level not-acceptable/invalid-request error rather than guessing.
 - Preserve current JSON response behavior for text, null, service errors, and special response types unless a test proves multipart is required for that shape.
 - Keep request multipart parsing and response multipart building as separate components even if they share small constants.
 
@@ -898,6 +900,7 @@ Red:
 - Add tests that stale body-related headers from JSON/base64/multipart transformations do not corrupt reconstructed proxy-fetch responses.
 - Add regression tests proving existing JSON response builder behavior remains unchanged.
 - Add tests for response format selection from `Accept: application/json, multipart/form-data`, JSON-only accept, missing accept, and unsupported accept values.
+- Add tests proving response format selection ignores target `accept` headers serialized inside the proxy-fetch target request.
 - Add tests that service-error envelopes remain JSON and do not use multipart.
 
 Green:
@@ -906,6 +909,7 @@ Green:
 - Normalize or remove stale body-related headers when building service responses.
 - Keep multipart response building explicit until response content negotiation/streaming policy is wired.
 - Add a small response-format selector rather than scattering `Accept` parsing through builders or use-cases.
+- Pass only the service request headers needed for response negotiation into the builder/selector; do not let builders depend on inbound framework adapters.
 
 Verify:
 - Multipart response builder tests pass.
@@ -918,13 +922,13 @@ Detailed scope:
 - The core must not ship GeoIP databases, call external IP services, perform DNS intelligence, or know provider-specific geo syntax.
 - Add only the minimum planning behavior needed to prevent strict geo requirements from being silently ignored.
 - Reuse provider capability contracts already introduced for `geo.mode`, `countries`, and `countrySelection`.
-- Define or export `ProxyExitVerifierPort` if the contract is missing, but do not execute verifier calls in this step. Lease-based verification is part of step 22, after `AttemptExecutor` exists.
+- Define or export `ProxyExitVerifierPort` if the contract is missing, but do not execute verifier calls in this step. Lease-based verification is part of step 23, after `AttemptExecutor` core exists.
 - Supported v0.1 behavior:
   - `geo.mode: "guaranteed"` may satisfy required country during planning when countries match or countries are `"*"`;
   - `geo.mode: "unsupported"` must be skipped or rejected for required geo requirements;
   - `geo.mode: "best-effort"` must not satisfy strict required geo unless policy explicitly accepts best-effort;
   - `geo.mode: "verified-after-acquire"` may remain plannable only when the plan marks exit verification as required for the attempt;
-  - verification mismatch classification remains step 22 because it requires an acquired lease and attempt signal.
+  - verification mismatch classification remains step 23 because it requires an acquired lease and attempt signal.
 - `.onion` route capability checks stay provider/transport capability work; target access policy only decides whether the target is allowed at all.
 - This step must not call provider `acquire()`, target transport, verifier ports, DNS, GeoIP, or HTTP probe endpoints.
 
@@ -946,37 +950,64 @@ Verify:
 - Geo capability planning tests pass.
 - Existing planner, retry, timeout, target access, and redaction tests still pass.
 
-## 22. Attempt Executor and Retry Loop
+## 22. Attempt Executor Core
 
 Detailed scope:
 - Extract attempt execution out of `HandleProxyFetchRequestUseCase` before the full direct-route flow becomes too large.
 - Keep attempt orchestration in `src/app/use-cases` or another narrow app-layer module if ownership is clearer, but do not put it in provider adapters or transports.
-- `AttemptExecutor` coordinates already-built collaborators:
+- This step implements the single-attempt execution core only. Same-attempt retry, fallback chains, and exit verification coordination move to step 23.
+- `AttemptExecutor` core coordinates already-built collaborators:
   - execution plan;
   - provider adapter acquire/release;
-  - optional exit verification;
   - target transport execution;
   - timeout controller;
   - result classifier;
-  - retry decider;
   - redaction helpers for diagnostics.
-- It owns lease-based exit verification coordination when an attempt produced by the planner requires verification.
 - It must not parse proxy-fetch envelopes, perform route matching, load config, perform DNS/GeoIP intelligence, or build service responses.
 - Provider `release()` remains best-effort and must not mask the final target response or service error.
-- Retry and fallback must be driven only by `RetryDecider`, not by ad hoc checks in the use-case.
+- Use the first planned attempt only in this step. Multiple attempts must be rejected or ignored according to one explicit test rule until step 23 owns retry/fallback.
+- Caller abort, total timeout, and per-attempt timeout must stop the active acquire/transport operation and return classified failure.
+- Route support checks stay before transport execution.
+- Response buffering remains delegated to `BodyBufferManager`.
+
+Red:
+- Add tests that provider `acquire()` receives request id, provider instance id, attempt context, normalized target, requirements, execution context, and active attempt signal.
+- Add tests that target transport receives the acquired route unchanged.
+- Add tests that `release()` is called after success, classified failure, timeout, abort, unsupported route, and target transport throw when a lease exists.
+- Add tests that a release failure is recorded through logger/telemetry helpers when available but does not mask the final result.
+- Add tests for target transport throw, unsupported route, acquire throw, caller abort, total timeout, and per-attempt timeout.
+- Add tests that response buffering failures are classified and release the lease when one exists.
+- Add tests that no retry or fallback is attempted in this core step, even when the plan contains more than one attempt.
+
+Green:
+- Implement `AttemptExecutor`.
+- Move provider acquire/release, transport execution, timeout observation, and classification out of `HandleProxyFetchRequestUseCase`.
+- Return a final target response or classified service-level failure suitable for envelope building.
+- Keep all raw error classification delegated to `ResultClassifier`.
+- Keep retry/fallback and verifier coordination out of this step.
+
+Verify:
+- Attempt executor tests pass.
+- Existing direct execution hardening, timeout, retry, classifier, planner, target access, and redaction tests still pass.
+
+## 23. Attempt Executor Retry, Fallback, and Verification
+
+Detailed scope:
+- Extend the `AttemptExecutor` core from step 22 with retry/fallback orchestration and lease-based exit verification.
+- Retry and fallback must be driven only by `RetryDecider`, not by ad hoc checks in the executor.
+- Same-attempt retry must respect `maxAttempts`, attempt timeout policy, retry conditions, body replayability, and unsafe-method policy.
+- Fallback must move through planned attempts in declaration order.
 - Caller abort and total gateway timeout prevent future fallback attempts.
 - Per-attempt timeout may continue to later attempts only when the classified outcome and retry policy allow it.
 - Unsafe or non-replayable requests must not be retried even when the plan contains fallback attempts.
 - Response streaming already started must prevent retry/fallback.
+- It owns lease-based exit verification coordination when an attempt produced by the planner requires verification.
 - Exit verification requests must use the acquired lease/route and the active attempt `AbortSignal`.
 - Verification diagnostics must go through `RedactionService`.
+- Keep real HTTP probe/verifier implementations outside the core package; tests should use a mock verifier port.
 
 Red:
 - Add tests for executing a planned fallback chain in declared order.
-- Add tests that provider `acquire()` receives request id, provider instance id, attempt context, normalized target, requirements, execution context, and active attempt signal.
-- Add tests that target transport receives the acquired route unchanged.
-- Add tests that `release()` is called after success, classified failure, timeout, abort, unsupported route, verification failure, and target transport throw when a lease exists.
-- Add tests that a release failure is recorded through logger/telemetry helpers when available but does not mask the final result.
 - Add tests that `RetryDecider` controls same-attempt retry and fallback.
 - Add tests that `POST` with retry policy but without a required idempotency key does not start a second acquire.
 - Add tests that caller abort and total timeout prevent future fallback.
@@ -989,21 +1020,21 @@ Red:
 - Add tests that verifier failure without trustworthy result produces `EXIT_VERIFICATION_FAILED`.
 - Add tests that target transport is not executed after verification rejection.
 - Add tests that verification-sensitive diagnostics are redacted.
+- Add tests that release still happens for each acquired lease across retries, fallback, verification mismatch, and verification failure.
 
 Green:
-- Implement `AttemptExecutor`.
-- Move provider acquire/release, transport execution, optional verifier coordination, timeout observation, classification, and retry-loop logic out of `HandleProxyFetchRequestUseCase`.
-- Return a final target response or classified service-level failure suitable for envelope building.
-- Keep all retry/fallback decisions delegated to `RetryDecider`.
-- Keep all raw error classification delegated to `ResultClassifier`.
-- Keep real HTTP probe/verifier implementations outside the core package; tests should use a mock verifier port.
+- Extend `AttemptExecutor` with retry-loop state and fallback traversal.
+- Delegate all retry/fallback decisions to `RetryDecider`.
+- Add mock-verifier coordination through `ProxyExitVerifierPort`.
+- Map geo mismatch and verification failure through the existing classifier/retry taxonomy.
+- Keep parser, planner, envelope building, framework wrappers, real verifier implementations, DNS, GeoIP, and target probing out of this step.
 
 Verify:
-- Attempt executor tests pass.
+- Attempt executor retry/fallback tests pass.
 - Mock exit verification tests pass.
-- Existing direct execution hardening, timeout, retry, classifier, planner, target access, and redaction tests still pass.
+- Existing attempt executor core, retry, timeout, classifier, planner, target access, and redaction tests still pass.
 
-## 23. Full Direct-Route Gateway Flow
+## 24. Full Direct-Route Gateway Flow
 
 Red:
 - Add integration tests that cover parse, normalize, target access, match, plan, acquire, optional verify, execute, classify, retry/fallback, redact diagnostics, and build response.
@@ -1028,7 +1059,7 @@ Verify:
 - Direct-route integration tests pass.
 - Existing unit tests for parser, normalizer, target access, planner, retry, timeout, classifier, redaction, multipart, and attempt executor still pass.
 
-## 24. Thin Wrapper Contract Suite
+## 25. Thin Wrapper Contract Suite
 
 Red:
 - Add a shared adapter contract suite.
@@ -1049,7 +1080,7 @@ Verify:
 - Wrapper contract tests pass.
 - Runtime dependency check still proves zero external runtime dependencies.
 
-## 25. Public Exports and Packaging Checks
+## 26. Public Exports and Packaging Checks
 
 Red:
 - Add public export tests for documented v0.1 contracts.
@@ -1080,6 +1111,7 @@ Verify:
 6. Timeout, abort, and target access guard.
 7. Public contract alignment, pipeline registry guardrails, and redaction.
 8. Multipart request and response support.
-9. Geo/verifyExit smoke contract and attempt executor.
-10. Full direct-route E2E and wrapper contract suite.
-11. Public exports and packaging checks.
+9. Geo planning contract and attempt executor core.
+10. Attempt executor retry/fallback plus verifyExit smoke.
+11. Full direct-route E2E and wrapper contract suite.
+12. Public exports and packaging checks.
