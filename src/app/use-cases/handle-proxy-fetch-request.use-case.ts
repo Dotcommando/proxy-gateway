@@ -13,6 +13,7 @@ import type { ProxyGateway } from '../../ports/inbound';
 import type {
   ProxyExecutionPlan,
   ProxyProviderInstance,
+  TargetFinalUrlGuardPort,
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
@@ -99,6 +100,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       });
       const executorResult = await attemptExecutor.execute({
         context: parsed.context,
+        finalUrlGuard: this.#createFinalUrlGuard(),
         parentSignal: totalScope.signal,
         plan: executionPlan,
         requestId,
@@ -177,6 +179,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     await providerSelection.provider.adapter.getCapabilities();
 
     return createSingleAttemptPlan(providerSelection.provider);
+  }
+
+  #createFinalUrlGuard(): TargetFinalUrlGuardPort {
+    return {
+      check: (input) => this.#targetAccessGuard.checkRedirectUrl(input.url, input.baseUrl),
+    };
   }
 }
 

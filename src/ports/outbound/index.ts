@@ -11,7 +11,10 @@ import {
   PROXY_ROUTE_AUTH_MODE,
   PROXY_ROUTE_HOP_KIND,
   PROXY_ROUTE_KIND,
+  RESPONSE_CODE,
   RETRY_CONDITION,
+  TARGET_ACCESS_REJECTION_REASON,
+  TARGET_ACCESS_RESULT_KIND,
 } from '../../constants';
 import type { ProxyRouteMatch } from '../../domain/routing';
 
@@ -418,6 +421,7 @@ export interface RandomPort {
 }
 
 export interface TargetTransportExecuteInput {
+  finalUrlGuard?: TargetFinalUrlGuardPort;
   requestId: string;
   target: GatewayTargetRequest;
   route: ProxyRoute;
@@ -427,6 +431,27 @@ export interface TargetTransportExecuteInput {
 export interface TargetTransportPort {
   execute(input: TargetTransportExecuteInput): Promise<GatewayTargetResponse>;
   supportsRoute?(route: ProxyRoute): boolean;
+}
+
+export interface TargetFinalUrlCheckInput {
+  baseUrl?: string;
+  url: string;
+}
+
+export type TargetFinalUrlCheckResult =
+  | {
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED;
+    }
+  | {
+      code: RESPONSE_CODE.TARGET_ACCESS_DENIED;
+      kind: TARGET_ACCESS_RESULT_KIND.REJECTED;
+      message: string;
+      reason: TARGET_ACCESS_REJECTION_REASON;
+      status: 403;
+    };
+
+export interface TargetFinalUrlGuardPort {
+  check(input: TargetFinalUrlCheckInput): TargetFinalUrlCheckResult;
 }
 
 export interface ProxyExitVerifyInput {

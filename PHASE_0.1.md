@@ -1359,7 +1359,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 24.5 Redirect/Final URL Guard Contract
+### 24.5 Redirect/Final URL Guard Contract - Done
 
 Scope:
 - Make redirect/final URL guard responsibility explicit in target transport contracts.
@@ -1385,6 +1385,22 @@ Verify:
 - Existing target access and direct-route hardening tests still pass.
 - Body/status compatibility tests still pass.
 
+Implemented:
+- Added `TargetFinalUrlGuardPort`, `TargetFinalUrlCheckInput`, and `TargetFinalUrlCheckResult` to outbound ports.
+- Added `finalUrlGuard` to `TargetTransportExecuteInput`.
+- Wired `HandleProxyFetchRequestUseCase` to provide a final URL guard backed by the existing `TargetAccessGuard.checkRedirectUrl()` policy.
+- Passed the guard through `AttemptExecutor` to target transports.
+- Added contract tests proving transports can validate relative/safe and localhost final URLs without importing app-layer classes.
+- Added a regression test proving initial target access denial still happens before provider capability lookup, acquire, or transport execution.
+- Did not add core redirect-chain orchestration or automatic final URL rejection because final URL knowledge belongs to target transports in v0.1.
+- Updated nested AGENTS.md files with the final URL guard contract.
+
+Verified:
+- `npm test -- --runTestsByPath tests/final-url-guard-contract.test.ts`
+- `npm test -- --runTestsByPath tests/final-url-guard-contract.test.ts tests/target-access-guard.test.ts tests/direct-route-hardening.test.ts tests/attempt-executor.test.ts tests/public-api.test.ts tests/gateway-body-status-compatibility.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ## 25. Thin Wrapper Contract Suite
 
 Red:
@@ -1393,6 +1409,7 @@ Red:
 - Add byte-level or sha256 assertions proving binary and multipart bodies are not corrupted by framework body parsers.
 - Add tests proving wrapper code does not pre-read or JSON-parse the gateway route body before passing it to `ProxyGateway.handle()`.
 - Add tests proving service error `details` survive wrapper boundaries without being reserialized incorrectly.
+- Add tests proving wrappers preserve the target transport `finalUrlGuard` path indirectly by passing requests to the same gateway instance rather than duplicating gateway logic.
 - Add a Node HTTP server factory for the contract suite.
 - Add framework-shaped mock factories for Express, Fastify, and NestJS wrappers if real frameworks are not dev dependencies.
 - If real Express/Fastify/NestJS wrappers are shipped in this package, keep those packages out of runtime dependencies and use them only as devDependencies for tests where possible.
@@ -1404,15 +1421,18 @@ Green:
 - Keep the contract suite reusable for future separate framework adapter packages.
 - Preserve raw request bytes and service response bytes across wrapper boundaries.
 - Avoid adding real framework runtime imports to satisfy contract tests.
+- Do not expose framework-specific packages from the core runtime.
 
 Verify:
 - Wrapper contract tests pass.
 - Runtime dependency check still proves zero external runtime dependencies.
+- Final URL guard contract tests still pass.
 
 ## 26. Public Exports and Packaging Checks
 
 Red:
 - Add public export tests for documented v0.1 contracts.
+- Add public export tests for `TargetFinalUrlGuardPort` and related check input/result types.
 - Add tests that deprecated or temporary bridge APIs are not exported unless explicitly intended for v0.1.
 - Add CJS and ESM smoke tests after build.
 - Add a packaging check that fails if package runtime dependencies are introduced.
@@ -1423,6 +1443,7 @@ Green:
 - Add or fix build/test configuration required by the current package scripts.
 - Ensure package contents include the built API and README.
 - Ensure public exports match README and AGENTS public contracts.
+- Keep temporary bridge APIs explicit if they remain exported for v0.1.
 
 Verify:
 - `npm run build`

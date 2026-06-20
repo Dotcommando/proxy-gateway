@@ -17,6 +17,7 @@ import type {
   ProxyExitVerifierPort,
   ProxyLease,
   ProxyProviderInstance,
+  TargetFinalUrlGuardPort,
   TargetTransportPort,
 } from '../../ports/outbound';
 import { BodyBufferLimitExceededError, BodyBufferManager } from '../buffering/body-buffer-manager';
@@ -41,6 +42,7 @@ export interface AttemptExecutorOptions {
 export interface AttemptExecutorInput {
   attemptTimeoutMs?: number;
   context: GatewayExecutionContext;
+  finalUrlGuard?: TargetFinalUrlGuardPort;
   parentSignal: AbortSignal;
   plan: ProxyExecutionPlan;
   requestId: string;
@@ -105,6 +107,7 @@ export class AttemptExecutor {
         attemptIndex,
         attemptNumber,
         context: input.context,
+        ...(input.finalUrlGuard !== undefined && { finalUrlGuard: input.finalUrlGuard }),
         parentSignal: input.parentSignal,
         requestId: input.requestId,
         target: input.target,
@@ -144,6 +147,7 @@ export class AttemptExecutor {
     attemptNumber: number;
     attemptTimeoutMs?: number;
     context: GatewayExecutionContext;
+    finalUrlGuard?: TargetFinalUrlGuardPort;
     parentSignal: AbortSignal;
     requestId: string;
     target: GatewayTargetRequest;
@@ -175,6 +179,7 @@ export class AttemptExecutor {
         attemptIndex: input.attemptIndex,
         attemptSignal: attemptScope.signal,
         context: input.context,
+        ...(input.finalUrlGuard !== undefined && { finalUrlGuard: input.finalUrlGuard }),
         provider,
         requestId: input.requestId,
         target: input.target,
@@ -190,6 +195,7 @@ export class AttemptExecutor {
     attemptIndex: number;
     attemptSignal: AbortSignal;
     context: GatewayExecutionContext;
+    finalUrlGuard?: TargetFinalUrlGuardPort;
     provider: ProxyProviderInstance;
     requestId: string;
     target: GatewayTargetRequest;
@@ -259,6 +265,7 @@ export class AttemptExecutor {
     try {
       const targetResponse = await this.#timeoutController.race(
         this.#transport.execute({
+          ...(input.finalUrlGuard !== undefined && { finalUrlGuard: input.finalUrlGuard }),
           requestId: input.requestId,
           route: lease.route,
           signal: input.attemptSignal,

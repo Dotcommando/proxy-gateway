@@ -31,6 +31,8 @@ The core route model may describe chains. A concrete `TargetTransportPort` may s
 
 Route diagnostics must never include route credentials, username/password values, tokens, proxy authorization material, or provider secrets.
 
+`TargetTransportExecuteInput.finalUrlGuard` lets transports validate redirect/final URLs against the gateway target access policy without importing app-layer classes. It is a guard contract only; the core must not implement redirect-chain orchestration inside attempt execution.
+
 ## Provider Capabilities
 
 Capabilities must be honest. They are used by planning and later retry/verification logic.
