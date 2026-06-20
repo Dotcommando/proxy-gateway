@@ -38,4 +38,5 @@ Consumer smoke coverage should include:
 - Node HTTP handler wiring through a real node:http server;
 - JSON Base64 body handling;
 - multipart request body handling.
+- v0.2 route/default-route config, route fallback, pipeline built-ins, sticky session reuse, memory session store usage, and related public type imports.
 ```

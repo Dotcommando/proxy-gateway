@@ -756,7 +756,7 @@ Next three steps reassessment:
 - Step 23 is ready after Step 22. README examples should document the final precedence rule: route/default requirements feed pipelines, selected pipeline plans win, skipped/no-plan pipelines fall through to route/default/direct plan, and no-plan fallback is disabled when pipelines are configured.
 - Step 24 remains useful after README/e2e because it should audit nested AGENTS for any remaining gaps from route/pipeline/e2e work rather than revisiting session rules already captured.
 
-## 22. Local Registry Consumer E2E For v0.2 Config
+## 22. Local Registry Consumer E2E For v0.2 Config - Completed
 
 Purpose:
 - Prove the published package works for v0.2 user-facing config after installation from a registry.
@@ -780,6 +780,28 @@ Verify:
   - `docker compose -f e2e/local-registry/docker-compose.yml up -d verdaccio`
   - `./e2e/local-registry/scripts/publish-local.sh .`
   - `docker compose -f e2e/local-registry/docker-compose.yml run --rm consumer`
+
+Progress:
+- Added installed-consumer v0.2 smoke coverage for route/default-route config, default route fallback, pipeline built-ins (`requirements.geo`, `providers.tags`, `providers.priority`, `plan.fallback`), sticky session reuse, and `createMemoryProxySessionStore()` usage.
+- Extended consumer type smoke to import and compile public v0.2 contracts/enums for route/default-route config, pipeline config, plan config, provider capabilities/candidates/instances, identity requirements, route requirements, and session-store usage.
+- Extended consumer export smoke for v0.2 runtime exports and updated local registry e2e docs/contracts for the new smoke coverage.
+- Kept the consumer install command on `npm install --package-lock=false`.
+- Checked nested AGENTS files and updated `e2e/local-registry/AGENTS.md` for the durable v0.2 local-registry smoke coverage rule.
+
+Verify:
+- `npm run typecheck`
+- `npm run lint`
+- `npm test`
+- `npm run pack:check`
+- `./e2e/local-registry/scripts/reset-registry.sh`
+- `docker compose -f e2e/local-registry/docker-compose.yml up -d verdaccio`
+- `./e2e/local-registry/scripts/publish-local.sh .`
+- `docker compose -f e2e/local-registry/docker-compose.yml run --rm consumer`
+
+Next three steps reassessment:
+- Step 23 is ready. README alignment should document the final user-facing behavior already proven by the installed consumer: route/default fallback, pipeline built-ins, sticky session reuse, memory session store, local Node HTTP integration, and out-of-scope framework/provider adapters. It should also mention the final precedence rule from Step 18.
+- Step 24 is still useful but can be narrow. Session and local-registry rules were already updated during earlier steps; audit remaining AGENTS gaps around README-facing route/pipeline precedence, built-in steps, and release-gate expectations rather than duplicating existing session-store rules.
+- Step 25 remains ready. It should treat the consumer e2e from Step 22 as an established release-gate command and focus on final export/package checks plus removal or documentation of any leftover temporary APIs.
 
 ## 23. README And Public API Alignment
 
@@ -845,12 +867,6 @@ Verify:
 
 ## Remaining PR Order
 
-1. Session write path and provider acquire identity handoff.
-2. Route/default-route contract hardening and route selection wiring.
-3. Route requirements merge if route-level requirements remain part of the contract.
-4. ProviderSelection bridge narrowing/removal after declarative route config can replace it.
-5. Pipeline options wiring and built-in requirements/provider/plan steps.
-6. Route/pipeline precedence and verification flags.
-7. Full sticky sessions through declarative routes/pipelines plus security/redaction regression.
-8. Local registry v0.2 consumer e2e.
-9. README, AGENTS, public exports, and release gate.
+1. README and public API alignment.
+2. Nested AGENTS.md audit for remaining route/pipeline/e2e/release rules.
+3. v0.2 release gate.

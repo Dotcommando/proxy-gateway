@@ -42,6 +42,7 @@ Then start Verdaccio and publish again.
 - JSON Base64 request/response body handling.
 - Multipart request body handling.
 - Basic `createProxyGateway()` execution through public API only.
+- v0.2 route/default-route config, route fallback, pipeline built-ins, sticky session reuse, `createMemoryProxySessionStore()` usage, and public type imports.
 
 ## Notes
 
