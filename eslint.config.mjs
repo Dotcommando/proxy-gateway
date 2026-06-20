@@ -168,6 +168,13 @@ export default [
           generics: 'always-multiline',
         },
       ],
+      '@stylistic/comma-spacing': [
+        'error',
+        {
+          before: false,
+          after: true,
+        },
+      ],
       '@stylistic/array-bracket-spacing': ['error', 'never'],
       '@typescript-eslint/prefer-optional-chain': [
         'error',
