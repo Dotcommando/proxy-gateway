@@ -1,0 +1,581 @@
+# v0.2 Implementation Plan
+
+Source: v0.1 implementation state, `README.md`, and the architectural rules in `AGENTS.md`.
+
+This phase turns the v0.1 core vertical slice into a configurable gateway:
+
+- full sticky/session behavior;
+- declarative routes and default route wiring;
+- pipeline wiring with built-in steps;
+- removal or narrowing of the temporary direct `providerSelection` bridge;
+- release-level e2e coverage through the local Verdaccio registry lab.
+
+## Phase-Specific Layout
+
+- Add `src/app/sessions` for app-level sticky/session coordination.
+- Use `src/adapters/outbound` for the dependency-free in-memory session store if it becomes public API.
+
+## Completion Criteria
+
+- v0.2 public API is reflected in README and package exports.
+- Sticky/session behavior is fully implemented, not just modelled.
+- Declarative route/default-route configuration works through `createProxyGateway()`.
+- Pipeline configuration works through `createProxyGateway()` with useful built-in steps.
+- Temporary `providerSelection.providerInstanceId` is removed or explicitly narrowed as a legacy/no-plan bridge with tests.
+
+## 1. v0.2 Contract Baseline
+
+Purpose:
+- Capture the current public API gaps before implementation.
+- Make the v0.2 target explicit in failing tests.
+
+Red:
+- Add public contract tests proving `ProxyGatewayOptions` should accept `routes`, `defaultRoute`, `pipelines`, `stepRegistry`, and `sessionStore`.
+- Add type-level tests proving `ProxyRouteRequirements.identity` is a structured identity requirement, not just accepted by the index signature.
+- Add tests proving `ProxySessionStorePort` and memory session-store factory are intended public exports.
+- Add tests proving real provider/framework/Tor adapters are not exported by this package.
+- Add README/API alignment tests for v0.2 route, pipeline, and session examples.
+
+Green:
+- Add only the minimum public type placeholders required to make the tests compile when the step is intentionally about contract shape.
+- Do not wire runtime behavior in this step unless a test requires it.
+
+Verify:
+- `npm test -- --runTestsByPath tests/public-api.test.ts tests/public-contract-types.test.ts`
+- `npm run typecheck`
+
+## 2. Identity Requirement Model
+
+Purpose:
+- Replace the implicit identity requirements index-signature use with explicit public contracts.
+
+Red:
+- Add tests for `ProxyIdentityRequirements` fields:
+  - `rotation`;
+  - `stickySessionId`;
+  - `stickySessionTtlMs`;
+  - `isolationKey`;
+  - `isolationScope`;
+  - `requestNewIdentity`.
+- Add tests that identity enum values come from package enums, not inline string literal unions.
+- Add tests that `ProxyRouteRequirements.identity` preserves identity fields through planner input/output.
+
+Green:
+- Add package enums for identity rotation and isolation-scope values.
+- Add `ProxyIdentityRequirements`.
+- Add `identity?: ProxyIdentityRequirements` to `ProxyRouteRequirements`.
+- Export the new public contracts from the package root.
+
+Verify:
+- Identity requirement tests pass.
+- Existing planner and provider acquire tests still pass.
+
+## 3. Session Key Derivation
+
+Purpose:
+- Make sticky-session key derivation deterministic, testable, and provider-agnostic.
+
+Red:
+- Add domain/app tests for deriving a session key from:
+  - explicit `stickySessionId`;
+  - `isolationKey`;
+  - `tenantId`;
+  - `flowKey`;
+  - `routeKey`;
+  - provider instance id;
+  - target host;
+  - attempt index when requested.
+- Add tests for default scope behavior.
+- Add tests that missing scope components are represented deterministically and do not collapse unrelated sessions.
+- Add tests for target host normalization before it contributes to the key.
+
+Green:
+- Add `src/app/sessions/SessionKeyFactory` or equivalent narrow app collaborator.
+- Keep pure URL/host normalization in domain modules if it is reusable by routing.
+- Use package enums for isolation scope values.
+
+Verify:
+- Session key tests pass.
+- Existing target access/routing matcher tests still pass.
+
+## 4. Session Store Port
+
+Purpose:
+- Add the outbound port that application code or dependency-free adapters can implement.
+
+Red:
+- Add port contract tests for batch-oriented session read/write/delete/touch behavior.
+- Add type tests for session record fields:
+  - session key;
+  - provider instance id;
+  - provider kind;
+  - expiration;
+  - identity requirements snapshot;
+  - metadata.
+- Add tests that expired records are treated as missing by the app-level session manager, not by every store implementation.
+
+Green:
+- Add `ProxySessionStorePort` to `src/ports/outbound`.
+- Prefer batch-oriented methods where practical, for example `getMany`, `setMany`, `deleteMany`.
+- Add `ProxyGatewayOptions.sessionStore`.
+- Export the port and record contracts from the package root.
+
+Verify:
+- Port type tests pass.
+- Package public export tests pass.
+
+## 5. Dependency-Free Memory Session Store
+
+Purpose:
+- Provide a useful built-in store for tests, local apps, and simple deployments without adding runtime dependencies.
+
+Red:
+- Add tests for `createMemoryProxySessionStore()` in `src/adapters/outbound`.
+- Cover set/get/delete/touch for multiple records.
+- Cover TTL expiration using an injected clock or deterministic timestamp input.
+- Cover overwrite behavior for the same session key.
+- Cover no cross-session leakage.
+
+Green:
+- Implement a dependency-free memory session store in `src/adapters/outbound`.
+- Export it from `src/adapters/outbound` and the package root only if intended as public API.
+- Do not read globals for time if a clock/now input is available through the port.
+
+Verify:
+- Memory store tests pass.
+- Package runtime dependency tests still prove zero runtime dependencies.
+
+## 6. Session Manager Read Path
+
+Purpose:
+- Resolve existing sticky sessions before provider planning/acquire.
+
+Red:
+- Add `SessionManager` tests that:
+  - read existing records by derived session key;
+  - ignore expired records;
+  - delete or replace expired records when policy requires cleanup;
+  - return a provider pin when the session record points to an enabled provider;
+  - reject or ignore records pointing to disabled/unknown providers;
+  - respect `requestNewIdentity`.
+
+Green:
+- Add `src/app/sessions/SessionManager`.
+- Keep provider validation provider-agnostic and based on provider instance id.
+- Do not call provider adapters from the session manager.
+
+Verify:
+- Session manager read-path tests pass.
+- Planner tests still pass.
+
+## 7. Session-Aware Planning
+
+Purpose:
+- Make sticky sessions influence provider selection and attempt planning.
+
+Red:
+- Add planner/use-case tests proving an existing sticky session pins the first attempt to the stored provider instance.
+- Add tests proving explicit route/provider constraints can reject an incompatible sticky provider.
+- Add tests proving fallback attempts remain available when policy allows them.
+- Add tests proving `requestNewIdentity` bypasses the stored provider.
+
+Green:
+- Wire session resolution into planning input before `ExecutionPlanner` selects providers.
+- Preserve provider capability checks for pinned providers.
+- Keep route/pipeline requirements structured.
+
+Verify:
+- Session-aware planning tests pass.
+- Existing route/planner retry/fallback tests still pass.
+
+## 8. Session Write Path After Successful Attempt
+
+Purpose:
+- Persist sticky-session provider choice after successful execution.
+
+Red:
+- Add gateway integration tests proving successful attempts write a session record with provider instance id and expiration.
+- Add tests proving failed attempts do not overwrite an existing successful sticky session unless policy explicitly says so.
+- Add tests proving fallback success updates the sticky provider to the fallback provider.
+- Add tests proving `stickySessionTtlMs` controls record expiration.
+
+Green:
+- Add session write coordination after `AttemptExecutor` completes successfully.
+- Ensure session writes are best-effort or classified according to a stable policy decided in this step.
+- Keep target response building independent of session-store serialization.
+
+Verify:
+- Gateway session write tests pass.
+- Attempt executor tests still pass.
+
+## 9. Provider Acquire Identity Handoff
+
+Purpose:
+- Ensure provider adapters receive identity/sticky/isolation requirements needed to implement provider-specific sessions.
+
+Red:
+- Add tests proving `ProxyAcquireInput.requirements.identity` reaches provider `acquire()`.
+- Cover sticky, fixed, per-request, isolation key, isolation scope, and request-new-identity fields.
+- Add tests proving session-derived provider pinning does not erase identity requirements.
+
+Green:
+- Preserve `requirements.identity` through route selection, pipeline merging, planning, and attempt execution.
+- Avoid provider-specific interpretation inside core.
+
+Verify:
+- Provider acquire handoff tests pass.
+- Session read/write tests still pass.
+
+## 10. Route Config Public API
+
+Purpose:
+- Add public route/default-route config to `createProxyGateway()` without runtime wiring yet.
+
+Red:
+- Add type tests for `routes?: ProxyRouteConfig[]` and `defaultRoute?: ProxyDefaultRouteConfig`.
+- Add tests that route configs use existing matcher contracts from `src/domain/routing`.
+- Add tests that plan configs attached to routes reuse `ProxyPlanConfig`.
+
+Green:
+- Add route/default-route options to `ProxyGatewayOptions`.
+- Export route config types from the package root if not already exported.
+
+Verify:
+- Public type tests pass.
+- Existing routing tests pass.
+
+## 11. Route Selection Wiring
+
+Purpose:
+- Use declarative `routes` in the actual gateway request flow.
+
+Red:
+- Add gateway integration tests:
+  - matching route by host/path/method;
+  - priority ordering;
+  - `exclude` after match;
+  - default route fallback;
+  - `NO_ROUTE_MATCHED` when no route/default exists.
+- Add tests proving route matching sees the normalized target request.
+
+Green:
+- Wire `selectRoute()` into `HandleProxyFetchRequestUseCase`.
+- Convert selected route/default route plan into planner input.
+
+Verify:
+- Route wiring integration tests pass.
+- Existing direct `options.plan` tests still pass.
+
+## 12. Route Requirements Merge
+
+Purpose:
+- Combine route-level requirements and attempt-level requirements predictably.
+
+Red:
+- Add tests for merging:
+  - provider include/exclude ids;
+  - protocols;
+  - DNS requirements;
+  - geo requirements;
+  - verification requirements;
+  - identity requirements.
+- Add tests proving attempt-level fields override route defaults where intended.
+- Add tests proving arrays are replaced or merged according to an explicit rule.
+
+Green:
+- Implement a narrow requirements merge collaborator in app/planning or domain if pure.
+- Document the merge rule in tests and README.
+
+Verify:
+- Requirements merge tests pass.
+- Planner capability tests still pass.
+
+## 13. Remove Or Narrow Provider Selection Bridge
+
+Purpose:
+- Stop relying on `providerSelection.providerInstanceId` as the normal user path.
+
+Red:
+- Add tests proving route/default-route config can replace the existing direct provider-selection hook.
+- Add tests proving `providerSelection` is either removed from public exports or only works when no `plan`, `routes`, `defaultRoute`, or `pipelines` are configured.
+- Add README/API tests reflecting the chosen public contract.
+
+Green:
+- Remove `providerSelection` from public options if feasible.
+- If retained, mark it as a legacy/no-plan bridge in tests and AGENTS.
+- Ensure all documented examples use routes/defaultRoute/pipelines instead.
+
+Verify:
+- Public API tests pass.
+- Local registry consumer does not rely on `providerSelection` after this step if route/default-route config can replace it.
+
+## 14. Pipeline Options Wiring
+
+Purpose:
+- Make configured pipelines participate in gateway planning.
+
+Red:
+- Add tests proving `ProxyGatewayOptions.pipelines` and `stepRegistry` are accepted and used.
+- Add tests proving `when` filters pipelines before phase execution.
+- Add tests proving `match` phase runs only after `when` matches.
+- Add tests for multiple pipelines with priority/order behavior.
+
+Green:
+- Wire `ProxyPipelineEngine` into the gateway use-case after target access and before planning.
+- Build initial `ProxyDecisionState` from target, context, facts, requirements, candidates, and metadata.
+- Keep built-in and custom steps behind `ProxyPipelineStepRegistryPort`.
+
+Verify:
+- Pipeline wiring tests pass.
+- Existing pipeline engine unit tests still pass.
+
+## 15. Built-In Requirements Pipeline Steps
+
+Purpose:
+- Provide useful declarative steps without requiring users to implement common boilerplate.
+
+Red:
+- Add tests for built-in steps:
+  - `requirements.set`;
+  - `requirements.merge`;
+  - `requirements.identity`;
+  - `requirements.geo`;
+  - `requirements.verification`.
+- Add tests for invalid args returning stable errors.
+- Add tests that built-in step names are constants/enums, not scattered strings.
+
+Green:
+- Add built-in pipeline step implementations under `src/app/pipeline`.
+- Register built-ins by default unless a user registry intentionally overrides according to a documented rule.
+- Keep arbitrary JS execution out of declarative config.
+
+Verify:
+- Built-in requirement step tests pass.
+- Pipeline wiring tests still pass.
+
+## 16. Built-In Provider Selection And Ranking Steps
+
+Purpose:
+- Let pipelines declaratively include, exclude, and rank providers.
+
+Red:
+- Add tests for built-in steps:
+  - provider include ids;
+  - provider exclude ids;
+  - tag filtering;
+  - priority ranking;
+  - weighted ordering where deterministic random is injected.
+- Add tests that disabled providers are never selected by built-ins.
+
+Green:
+- Implement provider selection/ranking steps in app/pipeline.
+- Use provider instance id as routing identity.
+- Do not inspect provider-specific config.
+
+Verify:
+- Provider built-in step tests pass.
+- Multiple-provider tests still pass.
+
+## 17. Built-In Plan Steps
+
+Purpose:
+- Let pipelines produce executable plan configs.
+
+Red:
+- Add tests for `plan.fallback`.
+- Add tests for per-attempt provider id, max attempts, timeout, retryOn, requirements, and verification.
+- Add tests for malformed attempts and unknown provider references producing stable errors.
+
+Green:
+- Implement `plan.fallback` built-in step.
+- Reuse `ExecutionPlanner` for provider capability validation.
+- Keep retry/fallback behavior in `AttemptExecutor` and `RetryDecider`.
+
+Verify:
+- Built-in plan tests pass.
+- Retry/fallback gateway tests still pass.
+
+## 18. Pipeline And Route Precedence
+
+Purpose:
+- Define how routes, default routes, and pipelines interact.
+
+Red:
+- Add integration tests for:
+  - route plan only;
+  - pipeline plan only;
+  - route requirements plus pipeline plan;
+  - pipeline rejection before route planning;
+  - default route when pipelines skip;
+  - no plan after pipelines and no default route.
+- Add tests for stable service errors when precedence produces no executable plan.
+
+Green:
+- Implement a single decision flow in the use-case.
+- Avoid duplicate planning logic between route and pipeline paths.
+
+Verify:
+- Route/pipeline precedence tests pass.
+- Existing route selection and pipeline engine tests still pass.
+
+## 19. Verification Flags Through Declarative Config
+
+Purpose:
+- Ensure route and pipeline config can require exit verification.
+
+Red:
+- Add gateway tests proving route-level verification triggers `ProxyExitVerifierPort`.
+- Add gateway tests proving pipeline-produced verification triggers verifier.
+- Add mismatch retry/fallback tests through declarative routes/pipelines.
+- Add tests proving no verifier produces stable rejection when strict verification requires one.
+
+Green:
+- Preserve verification requirements through merge, planner, and executor.
+
+Verify:
+- Verification declarative integration tests pass.
+- Existing attempt executor verification tests still pass.
+
+## 20. Sticky Sessions Through Declarative Routes
+
+Purpose:
+- Prove full sticky/session behavior through the public v0.2 configuration path.
+
+Red:
+- Add gateway integration tests:
+  - first request selects provider and writes sticky session;
+  - second request with same flow/identity reuses provider;
+  - different flow/tenant gets a different session;
+  - TTL expiration selects a new provider;
+  - requestNewIdentity replaces session;
+  - fallback success updates session.
+
+Green:
+- Wire session manager into the final route/pipeline planning flow.
+- Keep provider adapters generic and only pass identity requirements.
+
+Verify:
+- Sticky session gateway tests pass.
+- Memory store tests still pass.
+
+## 21. Target Access And Redaction Regression For Declarative Flow
+
+Purpose:
+- Ensure the new route/pipeline/session flow does not weaken v0.1 security behavior.
+
+Red:
+- Add integration tests proving denied initial targets still return before:
+  - route planning side effects;
+  - pipeline side effects;
+  - provider capability lookup;
+  - provider acquire;
+  - verifier;
+  - transport execution.
+- Add tests proving service error diagnostics from declarative flow remain redacted.
+
+Green:
+- Keep target access guard before route/pipeline planning.
+- Reuse `ResultClassifier` diagnostics for service errors.
+
+Verify:
+- Security regression tests pass.
+- Existing target access and redaction tests still pass.
+
+## 22. Local Registry Consumer E2E For v0.2 Config
+
+Purpose:
+- Prove the published package works for v0.2 user-facing config after installation from a registry.
+
+Red:
+- Extend `e2e/local-registry/consumer` smoke tests for:
+  - route/default-route config;
+  - route fallback;
+  - pipeline built-in requirements;
+  - sticky session reuse;
+  - TypeScript type imports for new public contracts.
+
+Green:
+- Update consumer smoke scripts.
+- Keep `npm install --package-lock=false`.
+
+Verify:
+- Local registry publish/install e2e passes:
+  - `./e2e/local-registry/scripts/reset-registry.sh`
+  - `docker compose -f e2e/local-registry/docker-compose.yml up -d verdaccio`
+  - `./e2e/local-registry/scripts/publish-local.sh .`
+  - `docker compose -f e2e/local-registry/docker-compose.yml run --rm consumer`
+
+## 23. README And Public API Alignment
+
+Purpose:
+- Make README describe the actual v0.2 public behavior.
+
+Red:
+- Add README/API alignment tests for:
+  - route config example;
+  - pipeline built-ins;
+  - sticky session config;
+  - memory session store;
+  - local Node HTTP integration;
+  - out-of-scope adapter packages.
+
+Green:
+- Update README user-facing docs.
+- Do not copy AGENTS-level internal architecture into README unless package users need it.
+
+Verify:
+- README/API tests pass.
+- `npm run typecheck`
+
+## 24. Nested AGENTS.md Updates
+
+Purpose:
+- Preserve durable v0.2 architecture decisions before deleting this phase file.
+
+Red:
+- Inspect decisions from completed v0.2 steps and compare them with nested `AGENTS.md`.
+- Add missing rules for sessions, route/pipeline flow, built-in steps, and local registry e2e.
+
+Green:
+- Update only relevant nested `AGENTS.md` files.
+- Keep root `AGENTS.md` compact.
+
+Verify:
+- Manual diff review.
+
+## 25. v0.2 Release Gate
+
+Purpose:
+- Final package check for the phase.
+
+Red:
+- Add any missing package/public export tests discovered during README alignment.
+- Add package contract checks for new public exports.
+
+Green:
+- Finalize exports.
+- Remove obsolete temporary APIs or document intentionally retained bridge APIs.
+- Ensure package contents include only intended files.
+
+Verify:
+- `npm run lint`
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
+- `npm run pack:check`
+- `npm run prepublishOnly`
+- Local registry publish/install e2e passes.
+
+## Suggested PR Order
+
+1. Identity/session contracts, key derivation, session store port.
+2. Memory session store and session manager read/write behavior.
+3. Session-aware planning and provider acquire identity handoff.
+4. Route/default-route public config and route selection wiring.
+5. Requirements merge and providerSelection bridge narrowing/removal.
+6. Pipeline options wiring and built-in requirements/provider/plan steps.
+7. Route/pipeline precedence and verification flags.
+8. Full sticky sessions through declarative routes/pipelines.
+9. Security/redaction regression for declarative flow.
+10. Local registry v0.2 consumer e2e.
+11. README, AGENTS, public exports, and release gate.
