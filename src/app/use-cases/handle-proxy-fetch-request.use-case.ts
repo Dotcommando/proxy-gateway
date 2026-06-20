@@ -18,6 +18,7 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchJsonEnvelopeBuilder, ProxyFetchJsonEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
+import { RedactionService } from '../redaction';
 import { TargetAccessGuard } from '../security';
 import {
   mapTimeoutObservationToOutcome,
@@ -33,13 +34,14 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #jsonEnvelopeBuilder = new ProxyFetchJsonEnvelopeBuilder();
   readonly #jsonEnvelopeParser = new ProxyFetchJsonEnvelopeParser();
   readonly #options: ProxyGatewayOptions;
-  readonly #resultClassifier = new ResultClassifier();
+  readonly #resultClassifier: ResultClassifier;
   readonly #targetAccessGuard: TargetAccessGuard;
   readonly #timeoutController = new TimeoutController();
 
   constructor(options: ProxyGatewayOptions) {
     this.#options = options;
     this.#bodyBufferManager = new BodyBufferManager(options.bodyBuffering);
+    this.#resultClassifier = new ResultClassifier(new RedactionService(options.redaction));
     this.#targetAccessGuard = new TargetAccessGuard(options.targetAccess);
   }
 

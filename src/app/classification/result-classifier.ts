@@ -6,13 +6,13 @@ import {
   RETRY_CONDITION,
   TARGET_TIMEOUT_MESSAGE,
 } from '../../constants';
-import { createRouteDiagnostic } from '../../domain/routing';
 import type {
   GatewayTargetRequest,
   GatewayTargetResponse,
   ProxyAttemptResult,
   ProxyRoute,
 } from '../../ports/outbound';
+import { RedactionService } from '../redaction';
 
 const RETRY_CONDITION_BY_HTTP_STATUS = new Map<number, RETRY_CONDITION>([
   [403, RETRY_CONDITION.HTTP_403],
@@ -26,8 +26,6 @@ const RETRY_CONDITION_BY_HTTP_STATUS = new Map<number, RETRY_CONDITION>([
   [503, RETRY_CONDITION.HTTP_503],
   [504, RETRY_CONDITION.HTTP_504],
 ]);
-const SENSITIVE_HEADER_NAMES = new Set(['authorization', 'cookie', 'proxy-authorization', 'x-api-key']);
-const REDACTED_VALUE = '<redacted>';
 
 export interface ClassifiedServiceError {
   code: RESPONSE_CODE;
@@ -187,6 +185,8 @@ const FAILURE_MAPPINGS = new Map<PROXY_ATTEMPT_RESULT_OUTCOME, FailureMapping>([
 ]);
 
 export class ResultClassifier {
+  constructor(private readonly redactionService = new RedactionService()) {}
+
   classifyTargetResponse(response: GatewayTargetResponse): ClassifiedAttempt {
     const outcome =
       response.status >= 400
@@ -211,7 +211,7 @@ export class ResultClassifier {
     const mapping = FAILURE_MAPPINGS.get(input.outcome);
     const message = input.message ?? mapping?.defaultMessage ?? 'Gateway attempt failed.';
     const code = mapping?.code ?? RESPONSE_CODE.TARGET_TRANSPORT_ERROR;
-    const diagnostics = createDiagnostics(input);
+    const diagnostics = createDiagnostics(input, this.redactionService);
     const retryCondition = mapping?.retryCondition;
     const classified: ClassifiedAttempt = {
       attemptResult: {
@@ -242,9 +242,12 @@ export class ResultClassifier {
   }
 }
 
-function createDiagnostics(input: ClassifyFailureInput): Record<string, unknown> | undefined {
-  const route = input.route === undefined ? undefined : createRouteDiagnostic(input.route);
-  const target = input.target === undefined ? undefined : createTargetDiagnostic(input.target);
+function createDiagnostics(
+  input: ClassifyFailureInput,
+  redactionService: RedactionService,
+): Record<string, unknown> | undefined {
+  const route = input.route === undefined ? undefined : redactionService.redactRoute(input.route);
+  const target = input.target === undefined ? undefined : createTargetDiagnostic(input.target, redactionService);
 
   if (route === undefined && target === undefined) {
     return undefined;
@@ -262,16 +265,13 @@ function createDiagnostics(input: ClassifyFailureInput): Record<string, unknown>
   return diagnostics;
 }
 
-function createTargetDiagnostic(target: GatewayTargetRequest): Record<string, unknown> {
+function createTargetDiagnostic(
+  target: GatewayTargetRequest,
+  redactionService: RedactionService,
+): Record<string, unknown> {
   return {
-    headers: target.headers.map(redactHeader),
+    headers: redactionService.redactHeaders(target.headers),
     method: target.method,
-    url: target.url,
+    url: redactionService.redactUrl(target.url),
   };
-}
-
-function redactHeader(header: [string, string]): [string, string] {
-  const [name, value] = header;
-
-  return SENSITIVE_HEADER_NAMES.has(name.toLowerCase()) ? [name, REDACTED_VALUE] : [name, value];
 }

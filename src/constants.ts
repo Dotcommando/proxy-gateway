@@ -66,6 +66,41 @@ export const TARGET_ACCESS_DENIED_MESSAGE = 'Target access is denied by gateway 
 
 export const PIPELINE_WHEN_NOT_MATCHED_REASON = 'pipeline-when-not-matched';
 
+export const REDACTED_VALUE = '<redacted>';
+
+export const DEFAULT_REDACTED_HEADER_NAMES = [
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+  'set-cookie',
+  'x-api-key',
+  'x-auth-token',
+] as const;
+
+export const DEFAULT_REDACTED_QUERY_PARAM_NAMES = [
+  'access_token',
+  'api_key',
+  'key',
+  'password',
+  'secret',
+  'token',
+] as const;
+
+export const DEFAULT_REDACTED_METADATA_KEY_NAMES = [
+  'access_token',
+  'api_key',
+  'authorization',
+  'cookie',
+  'key',
+  'password',
+  'proxy_authorization',
+  'secret',
+  'set_cookie',
+  'token',
+  'x_api_key',
+  'x_auth_token',
+] as const;
+
 export const DEFAULT_ALLOWED_TARGET_SCHEMES = ['http:', 'https:'] as const;
 
 export interface IpCidrRange {

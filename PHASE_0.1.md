@@ -754,7 +754,15 @@ Verify:
 - Public export tests pass.
 - Existing target access, pipeline, planner, and retry tests still pass.
 
-## 18. Redaction
+## 18. Redaction - Done
+
+Implemented:
+- Added package redaction constants for the replacement value and default sensitive header/query/metadata keys.
+- Added `RedactionService` in `src/app/redaction` with explicit entry points for headers, URLs, route diagnostics, and nested metadata.
+- Added `RedactionPolicy` and wired `ProxyGatewayOptions.redaction` into `ResultClassifier` through the gateway use-case.
+- Replaced classifier-local header redaction with centralized redaction.
+- Classifier diagnostics now redact sensitive target headers and target URL query parameters.
+- Route diagnostics remain structurally useful while route credentials and secret-like metadata are not exposed.
 
 Detailed scope:
 - Keep redaction in `src/app/redaction`.

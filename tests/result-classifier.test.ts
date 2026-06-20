@@ -12,6 +12,7 @@ import {
   type ProxyAttemptResult,
   type ProxyProviderInstance,
   type ProxyRoute,
+  REDACTED_VALUE,
   RESPONSE_CODE,
   RETRY_CONDITION,
   type TargetTransportPort,
@@ -178,7 +179,7 @@ describe('ResultClassifier', () => {
     });
   });
 
-  it('redacts route credentials and sensitive target headers in diagnostics', () => {
+  it('redacts route credentials, sensitive target headers, and target URL secrets in diagnostics', () => {
     const route: ProxyRoute = {
       auth: {
         mode: PROXY_ROUTE_AUTH_MODE.USERNAME_PASSWORD,
@@ -194,11 +195,13 @@ describe('ResultClassifier', () => {
     };
     const target = targetRequest({
       headers: [
-        ['authorization', 'Bearer target-secret'],
+        ['Authorization', 'Bearer target-secret'],
         ['cookie', 'session=secret-cookie'],
+        ['Set-Cookie', 'session=secret-cookie'],
         ['x-api-key', 'target-api-key'],
         ['accept', 'application/json'],
       ],
+      url: 'https://api.example.com/models?api_key=target-api-key&name=model&token=target-token',
     });
     const classified = new ResultClassifier().classifyFailure({
       outcome: PROXY_ATTEMPT_RESULT_OUTCOME.PROXY_CONNECTION_ERROR,
@@ -217,11 +220,13 @@ describe('ResultClassifier', () => {
       },
       target: {
         headers: [
-          ['authorization', '<redacted>'],
-          ['cookie', '<redacted>'],
-          ['x-api-key', '<redacted>'],
+          ['Authorization', REDACTED_VALUE],
+          ['cookie', REDACTED_VALUE],
+          ['Set-Cookie', REDACTED_VALUE],
+          ['x-api-key', REDACTED_VALUE],
           ['accept', 'application/json'],
         ],
+        url: expect.stringContaining(`api_key=${encodeURIComponent(REDACTED_VALUE)}`),
       },
     });
     expect(serializedDiagnostics).not.toContain('route-password');
@@ -230,6 +235,7 @@ describe('ResultClassifier', () => {
     expect(serializedDiagnostics).not.toContain('target-secret');
     expect(serializedDiagnostics).not.toContain('secret-cookie');
     expect(serializedDiagnostics).not.toContain('target-api-key');
+    expect(serializedDiagnostics).not.toContain('target-token');
   });
 
   it('direct execution releases classified target-network failures', async () => {

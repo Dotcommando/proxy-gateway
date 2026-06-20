@@ -1,6 +1,7 @@
 import type { PROXY_NETWORK_TYPE } from '../../constants';
 import type { StringMatcher } from '../../domain';
 import type { ProxyProviderInstance, RandomPort, TargetTransportPort } from '../../ports/outbound';
+import type { RedactionPolicy } from '../redaction';
 
 export interface BodyBufferingPolicy {
   maxBufferedRequestBodyBytes: number;
@@ -16,6 +17,7 @@ export interface ProxyGatewayOptions {
   providerSelection?: ProviderSelectionConfig;
   providers: ProxyProviderInstance[];
   random?: RandomPort;
+  redaction?: RedactionPolicy;
   retrySafety?: RetrySafetyPolicy;
   targetAccess?: TargetAccessPolicy;
   timeouts?: TimeoutPolicy;

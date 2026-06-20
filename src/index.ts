@@ -1,4 +1,5 @@
 export { createProxyGateway } from './app/create-proxy-gateway';
+export type { RedactionPolicy } from './app/redaction';
 export type {
   BodyBufferingPolicy,
   ProviderSelectionConfig,
