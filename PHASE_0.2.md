@@ -97,7 +97,7 @@ Next three steps reassessment:
 - Step 4 is ready but should avoid redefining identity fields; session records should snapshot `ProxyIdentityRequirements`.
 - Step 5 remains ready after Step 4. The memory store already exists as a public factory baseline, so Step 5 should focus on behavior coverage, deterministic time inputs where needed, overwrite semantics, and leakage prevention.
 
-## 3. Session Key Derivation
+## 3. Session Key Derivation - Completed
 
 Purpose:
 - Make sticky-session key derivation deterministic, testable, and provider-agnostic.
@@ -125,13 +125,24 @@ Verify:
 - Session key tests pass.
 - Existing target access/routing matcher tests still pass.
 
+Progress:
+- Added `src/app/sessions/SessionKeyFactory` with deterministic key derivation.
+- Covered explicit `stickySessionId`, `isolationKey`, default isolation scope, explicit `PROXY_IDENTITY_ISOLATION_SCOPE`, tenant/flow/route/provider/target-host components, attempt index when requested, missing component markers, and target host normalization.
+- Kept session key derivation app-level and provider-agnostic; no session-store reads/writes or gateway flow wiring were added in this step.
+- Checked nested AGENTS files and added session ownership rules to `src/app/AGENTS.md` plus `src/app/sessions/AGENTS.md`.
+
+Next three steps reassessment:
+- Step 4 is already partially covered by Step 1. It should focus on locking the existing port and record contracts with behavior/type tests instead of re-adding the port or gateway option.
+- Step 5 is already partially covered by Step 1. It should focus on full memory-store behavior tests and implementation hardening instead of creating the factory from scratch.
+- Step 6 should use `SessionKeyFactory` for read-path lookup and should keep expiry interpretation and provider compatibility checks in app-level session coordination.
+
 ## 4. Session Store Port
 
 Purpose:
 - Add the outbound port that application code or dependency-free adapters can implement.
 
 Red:
-- Add port contract tests for batch-oriented session read/write/delete/touch behavior.
+- Add port contract tests for batch-oriented session read/write/delete/touch behavior against the existing `ProxySessionStorePort` shape.
 - Add type tests for session record fields:
   - session key;
   - provider instance id;
@@ -139,13 +150,12 @@ Red:
   - expiration;
   - identity requirements snapshot;
   - metadata.
-- Add tests that expired records are treated as missing by the app-level session manager, not by every store implementation.
+- Move expired-record read-path behavior to Step 6, where the app-level session manager exists.
 
 Green:
-- Add `ProxySessionStorePort` to `src/ports/outbound`.
+- Keep the existing `ProxySessionStorePort` in `src/ports/outbound` and refine it only if the contract tests expose a gap.
 - Prefer batch-oriented methods where practical, for example `getMany`, `setMany`, `deleteMany`.
-- Add `ProxyGatewayOptions.sessionStore`.
-- Export the port and record contracts from the package root.
+- Keep `ProxyGatewayOptions.sessionStore` and package-root exports aligned with the finalized port and record contracts.
 
 Verify:
 - Port type tests pass.
@@ -164,7 +174,7 @@ Red:
 - Cover no cross-session leakage.
 
 Green:
-- Implement a dependency-free memory session store in `src/adapters/outbound`.
+- Complete the existing dependency-free memory session store in `src/adapters/outbound`.
 - Export it from `src/adapters/outbound` and the package root only if intended as public API.
 - Do not read globals for time if a clock/now input is available through the port.
 
@@ -188,6 +198,7 @@ Red:
 
 Green:
 - Add `src/app/sessions/SessionManager`.
+- Use `SessionKeyFactory` for all session key derivation.
 - Keep provider validation provider-agnostic and based on provider instance id.
 - Do not call provider adapters from the session manager.
 

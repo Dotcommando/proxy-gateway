@@ -14,6 +14,7 @@ The app layer coordinates gateway use-cases and ports. It is not the domain mode
 - redaction: safe diagnostics for headers, URLs, metadata, routes, logs, telemetry, and service errors.
 - retry: retry/fallback decisions over classified outcomes, retry policy, replayability, and attempt position.
 - security: target access policy and SSRF risk checks; no DNS/GeoIP intelligence by itself.
+- sessions: app-level sticky/session key derivation and session coordination. It may use outbound session-store ports but must not perform provider acquire, target transport, DNS, GeoIP intelligence, or provider-specific identity syntax.
 - timeouts: total-request and per-attempt timeout/abort orchestration.
 - types: app-layer composition/config/result types only.
 - use-cases: gateway orchestration, attempt execution, verification/retry coordination, and request-flow coordination.
