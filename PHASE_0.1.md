@@ -585,7 +585,7 @@ Green:
 Verify:
 - Timeout and abort tests pass.
 
-## 16. Target Access Guard
+## 16. Target Access Guard - Done
 
 Detailed scope:
 - Keep target access policy enforcement in `src/app/security`.
@@ -622,6 +622,24 @@ Detailed scope:
 - Integration should run before provider capability lookup/acquire in the current direct flow, so denied targets do not cause provider side effects.
 - If integration would force a broad use-case rewrite, keep the guard fully tested as a component and add one direct-flow smoke test only.
 - This step must not implement manual redirect following, redirect-chain execution, `maxRedirects`, cross-host redirect policy, DNS rebinding mitigation through transport connection pinning, or target transport redirect metadata. Those belong to the later target transport/orchestration work.
+
+Implemented:
+- Added `src/app/security/TargetAccessGuard`.
+- Added `TargetAccessPolicy` to app-layer config and `ProxyGatewayOptions`.
+- Added `DEFAULT_ALLOWED_TARGET_SCHEMES`, `DENIED_IPV4_CIDR_RANGES`, and `DENIED_IPV6_CIDR_RANGES` package constants.
+- Added `TARGET_ACCESS_RESULT_KIND` and `TARGET_ACCESS_REJECTION_REASON` package enums.
+- Added stable `TARGET_ACCESS_DENIED` response code and target-access denial message constant.
+- Implemented dependency-free IPv4 and IPv6 CIDR matching instead of exact URL/IP matching.
+- Denied unsupported schemes, localhost-style hostnames, private/loopback/link-local/multicast/unspecified IPv4 and IPv6 ranges, `.onion` targets by default, and already-resolved private IP facts.
+- Added explicit allow policy for localhost/private/onion targets.
+- Added reusable redirect/final URL validation for absolute, relative, and protocol-relative URL values without inventing target transport redirect metadata.
+- Wired target access guard before provider acquisition in the current direct flow.
+- Added target access tests for constants/enums, CIDR ranges, policy allow cases, resolved IP facts, redirect URL checks, and direct-flow pre-acquire rejection.
+
+Deferred:
+- `TARGET_ACCESS_CHECK_PURPOSE` was not added because the current guard has explicit entry points for initial target checks and redirect/final URL checks.
+- Redirect-chain execution, transport redirect metadata, DNS rebinding mitigation, and connection pinning remain later orchestration/transport work.
+- Redirect/final URL checks currently validate supplied URLs and base URL resolution, but do not consume redirect-specific resolved IP facts because target transport does not expose redirect resolution metadata yet.
 
 Red:
 - Add tests that target access result kinds and stable rejection codes use package enums.
@@ -718,11 +736,11 @@ Green:
 Verify:
 - Redaction tests pass.
 
-## 18. Multipart Request Parser and Response Builder
+## 18. Multipart Request Parser
 
 Detailed scope:
 - Keep proxy-fetch wire parsing/building in `src/app/envelopes`.
-- Multipart support must remain dependency-free.
+- Multipart support must remain dependency-free and request-parser focused in this step.
 - This step must implement the receiving side for all multipart shapes emitted by `@echospecter/proxy-fetch`:
   - `meta` JSON part first for streaming multipart;
   - binary `body` part with raw bytes;
@@ -730,13 +748,12 @@ Detailed scope:
   - `proxy-fetch-stream-*` boundary compatibility for stream uploads.
 - Keep JSON-base64 support from earlier steps intact; multipart must not regress JSON envelope behavior.
 - Reuse body buffering limits for multipart binary bodies. Do not buffer unlimited streams.
-- Multipart response building should produce a `meta` part and binary `body` part when response body policy chooses multipart. If v0.1 still defaults to JSON base64 for binary responses, document that in tests and keep multipart response builder as an explicit builder path.
-- Use constants for part names, content-type prefixes, CRLF-related serializer strings where shared, and stable multipart parser errors.
+- Keep multipart response building out of this step; it is step 19.
+- Use constants for part names, content-type prefixes, CRLF-related parser strings where shared, and stable multipart parser errors.
 - Tests should use byte-level assertions for binary round trips and boundary preservation.
 
 Red:
 - Add multipart request tests for `meta` JSON part, raw binary `body` part, missing required parts, byte-preserving binary round trip, and body-size enforcement.
-- Add multipart response builder tests for meta/body output.
 - Add parser/integration fixtures for binary client-side body shapes serialized by `@echospecter/proxy-fetch`: `Blob`, `ArrayBuffer`, typed arrays, `FormData`, `ReadableStream` with `duplex: "half"`, existing `Request` objects with binary bodies, and unknown non-text bodies.
 - Add tests proving default binary behavior uses multipart, and JSON base64 is used only when `binaryBodyTransport` is `json-base64`.
 - Add tests that multipart `meta` uses `request.body.kind: "binary"` and `request.body.partName: "body"`.
@@ -747,29 +764,59 @@ Red:
 
 Green:
 - Implement multipart parsing for the service contract.
-- Implement multipart response building.
 - Reuse body buffering decisions for multipart binary content.
 - Add parser dispatch by `Content-Type` without framework/body-parser dependencies.
 - Keep parser errors stable and classified as invalid proxy-fetch requests.
 
 Verify:
-- Multipart tests pass.
+- Multipart request parser tests pass.
 
-## 19. Full Direct-Route Gateway Flow
+## 19. Multipart Response Builder
+
+Detailed scope:
+- Keep multipart response building in `src/app/envelopes`.
+- This step produces service responses compatible with `@echospecter/proxy-fetch` multipart response parsing.
+- Multipart response building should produce:
+  - `meta` JSON response envelope part;
+  - raw binary `body` part;
+  - `response.body.kind: "binary"` and `partName: "body"` in meta.
+- Keep JSON text/null/base64 response building intact.
+- Do not introduce response streaming policy broader than the current body buffering policy unless tests require it.
+- Use package constants for part names, content-type prefixes, CRLF, binary content type, and stable multipart builder errors.
+
+Red:
+- Add multipart response builder tests for meta/body output.
+- Add byte-preserving binary response tests.
+- Add tests that null-body statuses `204`, `205`, and `304` do not emit a body part.
+- Add tests for special response types staying JSON-only or being rejected for multipart if the shape cannot be represented safely.
+- Add regression tests proving existing JSON response builder behavior remains unchanged.
+
+Green:
+- Implement multipart response building.
+- Reuse `ProxyFetchJsonEnvelopeBuilder` metadata serialization where possible instead of duplicating response envelope rules.
+- Keep multipart response building explicit until response content negotiation/streaming policy is wired.
+
+Verify:
+- Multipart response builder tests pass.
+
+## 20. Full Direct-Route Gateway Flow
 
 Red:
 - Add integration tests that cover parse, normalize, match, plan, acquire, execute, classify, and build response.
-- Cover text, binary/base64, null-body statuses, and target HTTP error statuses.
+- Cover text, JSON base64, multipart binary request, multipart binary response, null-body statuses, target HTTP error statuses, timeout/abort, and target access denial.
+- Add tests proving planner-owned provider selection can replace the temporary `providerSelection.providerInstanceId` direct hook.
+- Add tests proving retry decisions can select same-attempt retry or fallback for the direct-flow executor without retrying unsafe/non-replayable requests.
 
 Green:
 - Wire parser, normalizer, access guard, pipeline/planner, attempt executor, retry decider, classifier, and builder through `HandleProxyFetchRequestUseCase` and extracted app collaborators.
 - Remove temporary `NOT_IMPLEMENTED` paths for covered v0.1 behavior.
 - Remove or narrow the temporary `providerSelection.providerInstanceId` hook once planner-owned direct-route defaults cover the same behavior.
+- Keep framework wrappers out of this step.
 
 Verify:
 - Direct-route integration tests pass.
 
-## 20. Thin Wrapper Contract Suite
+## 21. Thin Wrapper Contract Suite
 
 Red:
 - Add a shared adapter contract suite.
@@ -785,7 +832,7 @@ Green:
 Verify:
 - Wrapper contract tests pass.
 
-## 21. Public Exports and Packaging Checks
+## 22. Public Exports and Packaging Checks
 
 Red:
 - Add public export tests for documented v0.1 contracts.

@@ -4,6 +4,7 @@ export type {
   ProviderSelectionConfig,
   ProxyGatewayOptions,
   RetrySafetyPolicy,
+  TargetAccessPolicy,
   TimeoutPolicy,
 } from './app/types';
 export * from './constants';

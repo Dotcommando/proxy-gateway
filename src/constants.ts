@@ -62,6 +62,35 @@ export const TARGET_TIMEOUT_MESSAGE = 'Target request timed out.';
 
 export const REQUEST_ABORTED_MESSAGE = 'Request was aborted.';
 
+export const TARGET_ACCESS_DENIED_MESSAGE = 'Target access is denied by gateway policy.';
+
+export const DEFAULT_ALLOWED_TARGET_SCHEMES = ['http:', 'https:'] as const;
+
+export interface IpCidrRange {
+  base: string;
+  prefixLength: number;
+}
+
+export const DENIED_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
+  { base: '0.0.0.0', prefixLength: 8 },
+  { base: '10.0.0.0', prefixLength: 8 },
+  { base: '100.64.0.0', prefixLength: 10 },
+  { base: '127.0.0.0', prefixLength: 8 },
+  { base: '169.254.0.0', prefixLength: 16 },
+  { base: '172.16.0.0', prefixLength: 12 },
+  { base: '192.168.0.0', prefixLength: 16 },
+  { base: '224.0.0.0', prefixLength: 4 },
+  { base: '240.0.0.0', prefixLength: 4 },
+] as const;
+
+export const DENIED_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
+  { base: '::', prefixLength: 128 },
+  { base: '::1', prefixLength: 128 },
+  { base: 'fc00::', prefixLength: 7 },
+  { base: 'fe80::', prefixLength: 10 },
+  { base: 'ff00::', prefixLength: 8 },
+] as const;
+
 export enum RESPONSE_CODE {
   EXIT_VERIFICATION_FAILED = 'EXIT_VERIFICATION_FAILED',
   GATEWAY_TIMEOUT = 'GATEWAY_TIMEOUT',
@@ -79,6 +108,7 @@ export enum RESPONSE_CODE {
   REQUEST_ABORTED = 'REQUEST_ABORTED',
   REQUEST_BODY_NOT_REPLAYABLE = 'REQUEST_BODY_NOT_REPLAYABLE',
   RESPONSE_STREAM_ALREADY_STARTED = 'RESPONSE_STREAM_ALREADY_STARTED',
+  TARGET_ACCESS_DENIED = 'TARGET_ACCESS_DENIED',
   TARGET_TIMEOUT = 'TARGET_TIMEOUT',
   TARGET_TRANSPORT_ERROR = 'TARGET_TRANSPORT_ERROR',
   TRANSPORT_NOT_CONFIGURED = 'TRANSPORT_NOT_CONFIGURED',
@@ -152,6 +182,20 @@ export enum TIMEOUT_OBSERVATION_KIND {
   ATTEMPT_TIMEOUT = 'attempt-timeout',
   CALLER_ABORTED = 'caller-aborted',
   TOTAL_TIMEOUT = 'total-timeout',
+}
+
+export enum TARGET_ACCESS_RESULT_KIND {
+  ALLOWED = 'allowed',
+  REJECTED = 'rejected',
+}
+
+export enum TARGET_ACCESS_REJECTION_REASON {
+  INVALID_URL = 'invalid-url',
+  LOCAL_HOSTNAME = 'local-hostname',
+  ONION_NOT_ALLOWED = 'onion-not-allowed',
+  PRIVATE_IP_RANGE = 'private-ip-range',
+  RESOLVED_PRIVATE_IP_RANGE = 'resolved-private-ip-range',
+  UNSUPPORTED_SCHEME = 'unsupported-scheme',
 }
 
 export enum STRING_MATCHER_KIND {

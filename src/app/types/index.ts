@@ -15,6 +15,7 @@ export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
   random?: RandomPort;
   retrySafety?: RetrySafetyPolicy;
+  targetAccess?: TargetAccessPolicy;
   timeouts?: TimeoutPolicy;
   transport?: TargetTransportPort;
 }
@@ -32,4 +33,11 @@ export interface RetrySafetyPolicy {
 export interface TimeoutPolicy {
   attemptTimeoutMs?: number;
   totalTimeoutMs?: number;
+}
+
+export interface TargetAccessPolicy {
+  allowLocalhost?: boolean;
+  allowOnionTargets?: boolean;
+  allowPrivateNetworks?: boolean;
+  allowedSchemes?: string[];
 }

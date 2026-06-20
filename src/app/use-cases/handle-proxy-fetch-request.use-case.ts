@@ -5,6 +5,7 @@ import {
   PROVIDER_SELECTION_RESULT_KIND,
   PROXY_ATTEMPT_RESULT_OUTCOME,
   RESPONSE_CODE,
+  TARGET_ACCESS_RESULT_KIND,
 } from '../../constants';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
@@ -17,6 +18,7 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchJsonEnvelopeBuilder, ProxyFetchJsonEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
+import { TargetAccessGuard } from '../security';
 import {
   mapTimeoutObservationToOutcome,
   readTimeoutObservation,
@@ -32,11 +34,13 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #jsonEnvelopeParser = new ProxyFetchJsonEnvelopeParser();
   readonly #options: ProxyGatewayOptions;
   readonly #resultClassifier = new ResultClassifier();
+  readonly #targetAccessGuard: TargetAccessGuard;
   readonly #timeoutController = new TimeoutController();
 
   constructor(options: ProxyGatewayOptions) {
     this.#options = options;
     this.#bodyBufferManager = new BodyBufferManager(options.bodyBuffering);
+    this.#targetAccessGuard = new TargetAccessGuard(options.targetAccess);
   }
 
   async handle(request: Request): Promise<Response> {
@@ -54,6 +58,16 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         ...parsed.target,
         body: await this.#bodyBufferManager.bufferRequestBody(parsed.target.body),
       };
+      const targetAccess = this.#targetAccessGuard.check({ target });
+
+      if (targetAccess.kind === TARGET_ACCESS_RESULT_KIND.REJECTED) {
+        return this.#jsonEnvelopeBuilder.buildServiceError(targetAccess.status, {
+          code: targetAccess.code,
+          message: targetAccess.message,
+          retryable: false,
+        });
+      }
+
       const providerSelection = selectProviderInstance(
         this.#options.providers,
         this.#options.providerSelection?.providerInstanceId,

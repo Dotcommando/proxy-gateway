@@ -1,0 +1,233 @@
+import { describe, expect, it } from '@jest/globals';
+
+import {
+  createProxyGateway,
+  DEFAULT_ALLOWED_TARGET_SCHEMES,
+  DENIED_IPV4_CIDR_RANGES,
+  DENIED_IPV6_CIDR_RANGES,
+  type GatewayTargetRequest,
+  type ProxyProviderInstance,
+  RESPONSE_CODE,
+  TARGET_ACCESS_REJECTION_REASON,
+  TARGET_ACCESS_RESULT_KIND,
+  WIRE_PROTOCOL_VERSION,
+} from '../src';
+import { TargetAccessGuard } from '../src/app/security';
+
+describe('TargetAccessGuard', () => {
+  it('uses package constants and enums for default schemes, denied ranges, result kinds, and rejection reasons', () => {
+    expect(DEFAULT_ALLOWED_TARGET_SCHEMES).toEqual(['http:', 'https:']);
+    expect(DENIED_IPV4_CIDR_RANGES).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ base: '127.0.0.0', prefixLength: 8 }),
+        expect.objectContaining({ base: '192.168.0.0', prefixLength: 16 }),
+      ]),
+    );
+    expect(DENIED_IPV6_CIDR_RANGES).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ base: '::1', prefixLength: 128 }),
+        expect.objectContaining({ base: 'fc00::', prefixLength: 7 }),
+      ]),
+    );
+    expect(TARGET_ACCESS_RESULT_KIND.ALLOWED).toBe('allowed');
+    expect(TARGET_ACCESS_RESULT_KIND.REJECTED).toBe('rejected');
+    expect(TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE).toBe('private-ip-range');
+  });
+
+  it('allows ordinary HTTP and HTTPS public targets', () => {
+    const guard = new TargetAccessGuard();
+
+    expect(guard.check({ target: targetRequest('https://example.com/resource') })).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+    expect(guard.check({ target: targetRequest('http://93.184.216.34/resource') })).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+  });
+
+  it('rejects unsupported schemes by default', () => {
+    const guard = new TargetAccessGuard();
+
+    for (const url of ['file:///etc/passwd', 'ftp://example.com/file', 'data:text/plain,hello']) {
+      expect(guard.checkUrl(url)).toMatchObject({
+        kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+        reason: TARGET_ACCESS_REJECTION_REASON.UNSUPPORTED_SCHEME,
+      });
+    }
+  });
+
+  it('rejects localhost-style hostnames by default', () => {
+    const guard = new TargetAccessGuard();
+
+    for (const url of ['http://localhost/status', 'http://api.localhost/status']) {
+      expect(guard.checkUrl(url)).toMatchObject({
+        kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+        reason: TARGET_ACCESS_REJECTION_REASON.LOCAL_HOSTNAME,
+      });
+    }
+  });
+
+  it('rejects denied IPv4 ranges by CIDR rather than exact host equality', () => {
+    const guard = new TargetAccessGuard();
+
+    for (const url of [
+      'http://0.0.0.0/',
+      'http://10.2.3.4/',
+      'http://100.64.0.1/',
+      'http://127.0.0.1/',
+      'http://169.254.10.20/',
+      'http://172.16.0.1/',
+      'http://172.31.255.255/',
+      'http://192.168.0.1/',
+      'http://224.0.0.1/',
+    ]) {
+      expect(guard.checkUrl(url)).toMatchObject({
+        kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+        reason: TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE,
+      });
+    }
+  });
+
+  it('rejects denied IPv6 ranges by CIDR', () => {
+    const guard = new TargetAccessGuard();
+
+    for (const url of ['http://[::]/', 'http://[::1]/', 'http://[fc00::1]/', 'http://[fe80::1]/']) {
+      expect(guard.checkUrl(url)).toMatchObject({
+        kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+        reason: TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE,
+      });
+    }
+  });
+
+  it('can explicitly allow local, private, and onion targets', () => {
+    const guard = new TargetAccessGuard({
+      allowLocalhost: true,
+      allowOnionTargets: true,
+      allowPrivateNetworks: true,
+    });
+
+    expect(guard.checkUrl('http://localhost/status')).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+    expect(guard.checkUrl('http://192.168.0.1/status')).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+    expect(guard.checkUrl('http://exampleonionaddress.onion/status')).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+  });
+
+  it('rejects onion targets by default', () => {
+    expect(new TargetAccessGuard().checkUrl('http://exampleonionaddress.onion/status')).toMatchObject({
+      kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+      reason: TARGET_ACCESS_REJECTION_REASON.ONION_NOT_ALLOWED,
+    });
+  });
+
+  it('rejects already-resolved private IP facts even for public-looking hostnames', () => {
+    const result = new TargetAccessGuard().check({
+      facts: {
+        target: {
+          resolvedIps: ['192.168.1.10'],
+        },
+      },
+      target: targetRequest('https://api.example.com/resource'),
+    });
+
+    expect(result).toMatchObject({
+      kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+      reason: TARGET_ACCESS_REJECTION_REASON.RESOLVED_PRIVATE_IP_RANGE,
+    });
+  });
+
+  it('can validate supplied redirect or final URLs without target transport redirect integration', () => {
+    const guard = new TargetAccessGuard();
+
+    expect(guard.checkRedirectUrl('https://example.com/final')).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+    expect(guard.checkRedirectUrl('/final', 'https://example.com/current')).toEqual({
+      kind: TARGET_ACCESS_RESULT_KIND.ALLOWED,
+    });
+    expect(guard.checkRedirectUrl('http://127.0.0.1/final')).toMatchObject({
+      kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+      reason: TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE,
+    });
+    expect(guard.checkRedirectUrl('//127.0.0.1/admin', 'https://example.com/current')).toMatchObject({
+      kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+      reason: TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE,
+    });
+    expect(guard.checkRedirectUrl('file:///etc/passwd', 'https://example.com/current')).toMatchObject({
+      kind: TARGET_ACCESS_RESULT_KIND.REJECTED,
+      reason: TARGET_ACCESS_REJECTION_REASON.UNSUPPORTED_SCHEME,
+    });
+  });
+
+  it('direct gateway flow rejects denied targets before provider acquisition', async () => {
+    let acquired = false;
+    const provider: ProxyProviderInstance = {
+      adapter: {
+        acquire: async () => {
+          acquired = true;
+
+          throw new Error('provider should not be acquired');
+        },
+        getCapabilities: () => ({}),
+        kind: 'test-direct',
+      },
+      id: 'provider-a',
+    };
+    const gateway = createProxyGateway({
+      providers: [provider],
+      transport: {
+        execute: async () => {
+          throw new Error('transport should not execute');
+        },
+      },
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest('http://127.0.0.1/private'));
+
+    expect(acquired).toBe(false);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: RESPONSE_CODE.TARGET_ACCESS_DENIED,
+        retryable: false,
+      },
+      ok: false,
+      version: WIRE_PROTOCOL_VERSION,
+    });
+  });
+});
+
+function targetRequest(url: string): GatewayTargetRequest {
+  return {
+    body: {
+      kind: 'none',
+      replayability: 'replayable',
+    },
+    fetch: {},
+    headers: [],
+    method: 'GET',
+    url,
+  };
+}
+
+function proxyFetchJsonRequest(url: string): Request {
+  return new Request('https://gateway.test/proxy', {
+    body: JSON.stringify({
+      context: {},
+      request: {
+        body: null,
+        headers: [],
+        method: 'GET',
+        url,
+      },
+      version: WIRE_PROTOCOL_VERSION,
+    }),
+    headers: {
+      'content-type': 'application/json',
+    },
+    method: 'POST',
+  });
+}
