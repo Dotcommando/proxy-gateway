@@ -5,6 +5,7 @@ import {
   GATEWAY_TIMEOUT_MESSAGE,
   PLANNER_RESULT_KIND,
   PROVIDER_SELECTION_RESULT_KIND,
+  PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_PLAN_KIND,
   RESPONSE_CODE,
   TARGET_ACCESS_RESULT_KIND,
@@ -15,6 +16,7 @@ import type {
   GatewayTargetRequest,
   ProxyExecutionPlan,
   ProxyProviderInstance,
+  ProxySessionRecord,
   TargetFinalUrlGuardPort,
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
@@ -24,7 +26,7 @@ import { ExecutionPlanner, type ProxyPlanAttemptConfig, type ProxyPlanConfig } f
 import { RedactionService } from '../redaction';
 import { RetryDecider } from '../retry';
 import { TargetAccessGuard } from '../security';
-import { SESSION_MANAGER_READ_RESULT_KIND, SessionManager } from '../sessions';
+import { SESSION_MANAGER_READ_RESULT_KIND, SessionKeyFactory, SessionManager } from '../sessions';
 import {
   mapTimeoutObservationToOutcome,
   readTimeoutObservation,
@@ -114,6 +116,14 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       });
 
       if (executorResult.kind === ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED) {
+        if (executorResult.classified.attemptResult.outcome === PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS) {
+          await this.#writeSessionIfNeeded({
+            attempt: executorResult.attempt,
+            context: parsed.context,
+            target,
+          });
+        }
+
         return this.#envelopeBuilder.buildTargetResponse(executorResult.response, request.headers);
       }
 
@@ -246,6 +256,65 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     };
   }
 
+  async #writeSessionIfNeeded(input: {
+    attempt: ProxyExecutionPlan['attempts'][number];
+    context: GatewayExecutionContext;
+    target: GatewayTargetRequest;
+  }): Promise<void> {
+    const identity = input.attempt.requirements?.identity;
+    const ttlMs = identity?.stickySessionTtlMs;
+
+    if (
+      this.#options.sessionStore === undefined
+      || identity === undefined
+      || ttlMs === undefined
+    ) {
+      return;
+    }
+
+    const providerKind = input.attempt.providerKind ?? readProviderKind(
+      this.#options.providers,
+      input.attempt.providerInstanceId,
+    );
+
+    if (providerKind === undefined) {
+      return;
+    }
+
+    const keyFactory = new SessionKeyFactory();
+    const key = keyFactory.derive({
+      context: input.context,
+      identity,
+      providerInstanceId: input.attempt.providerInstanceId,
+      targetUrl: input.target.url,
+    }).key;
+    const staleKeys = deriveSessionCandidateKeys({
+      context: input.context,
+      identity,
+      keyFactory,
+      providers: this.#options.providers,
+      targetUrl: input.target.url,
+      winningKey: key,
+    });
+    const record: ProxySessionRecord = {
+      expiresAt: new Date(Date.now() + ttlMs),
+      identity,
+      key,
+      providerInstanceId: input.attempt.providerInstanceId,
+      providerKind,
+    };
+
+    try {
+      if (staleKeys.length > 0) {
+        await this.#options.sessionStore.deleteMany(staleKeys);
+      }
+
+      await this.#options.sessionStore.setMany([record]);
+    } catch {
+      return;
+    }
+  }
+
   #createFinalUrlGuard(): TargetFinalUrlGuardPort {
     return {
       check: (input) => this.#targetAccessGuard.checkRedirectUrl(input.url, input.baseUrl),
@@ -308,6 +377,43 @@ function attemptAcceptsSessionProvider(
   }
 
   return true;
+}
+
+function deriveSessionCandidateKeys(input: {
+  context: GatewayExecutionContext;
+  identity: NonNullable<ProxyPlanAttemptConfig['requirements']>['identity'];
+  keyFactory: SessionKeyFactory;
+  providers: ProxyProviderInstance[];
+  targetUrl: string;
+  winningKey: string;
+}): string[] {
+  const providerIds = [
+    undefined,
+    ...input.providers.map((provider) => provider.id),
+  ];
+  const keys = new Set<string>();
+
+  for (const providerInstanceId of providerIds) {
+    const key = input.keyFactory.derive({
+      context: input.context,
+      ...(input.identity === undefined ? {} : { identity: input.identity }),
+      ...(providerInstanceId === undefined ? {} : { providerInstanceId }),
+      targetUrl: input.targetUrl,
+    }).key;
+
+    if (key !== input.winningKey) {
+      keys.add(key);
+    }
+  }
+
+  return [...keys];
+}
+
+function readProviderKind(
+  providers: ProxyProviderInstance[],
+  providerInstanceId: string,
+): string | undefined {
+  return providers.find((provider) => provider.id === providerInstanceId)?.adapter.kind;
 }
 
 function buildTimeoutServiceError(

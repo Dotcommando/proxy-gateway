@@ -271,7 +271,7 @@ Next three steps reassessment:
 - Step 9 remains ready. It should explicitly cover that Step 7 pinning does not remove `requirements.identity` before provider `acquire()`.
 - Step 10 is still mostly public contract work, but it should account for the fact that direct `options.plan` now has session read-path behavior while declarative routes are not wired yet.
 
-## 8. Session Write Path After Successful Attempt
+## 8. Session Write Path After Successful Attempt - Completed
 
 Purpose:
 - Persist sticky-session provider choice after successful execution.
@@ -292,6 +292,17 @@ Green:
 Verify:
 - Gateway session write tests pass.
 - Attempt executor tests still pass.
+
+Progress:
+- Added gateway session write tests for successful write, failed-attempt non-overwrite, fallback success updating the sticky provider, `stickySessionTtlMs` expiration, and best-effort write failures.
+- Added best-effort session write coordination after completed `SUCCESS` attempts in the configured `options.plan` flow.
+- Writes use `SessionKeyFactory` with the successful provider instance id, write required `expiresAt`, and delete stale candidate keys before storing the winning provider record.
+- Checked nested AGENTS files and updated `src/app/use-cases/AGENTS.md` for session write ownership and best-effort behavior.
+
+Next three steps reassessment:
+- Step 9 is ready and should now explicitly verify both read-path pinning and write-path fallback success preserve `requirements.identity` into provider acquire.
+- Step 10 remains route contract hardening. It should avoid touching direct-plan session behavior unless route-level requirements need the same identity shape.
+- Step 11 remains route selection wiring. It should reuse the existing direct-plan planning/session helpers so route-selected plans get the same read/write behavior.
 
 ## 9. Provider Acquire Identity Handoff
 
