@@ -354,6 +354,26 @@ export enum PROXY_NETWORK_TYPE {
   TOR = 'tor',
 }
 
+export enum PROXY_GEO_STRICTNESS {
+  BEST_EFFORT = 'best-effort',
+  PREFERRED = 'preferred',
+  REQUIRED = 'required',
+}
+
+export enum PROXY_PROVIDER_GEO_MODE {
+  BEST_EFFORT = 'best-effort',
+  GUARANTEED = 'guaranteed',
+  UNSUPPORTED = 'unsupported',
+  VERIFIED_AFTER_ACQUIRE = 'verified-after-acquire',
+}
+
+export enum PROXY_PROVIDER_COUNTRY_SELECTION {
+  EXTERNAL_OR_PROVIDER_CONFIG = 'external-or-provider-config',
+  NOT_SUPPORTED = 'not-supported',
+  PER_REQUEST = 'per-request',
+  PROVIDER_CONFIG = 'provider-config',
+}
+
 export enum PROXY_ROUTE_KIND {
   CUSTOM_TRANSPORT = 'custom-transport',
   DIRECT = 'direct',

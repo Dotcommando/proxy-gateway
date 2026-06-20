@@ -2,9 +2,12 @@ import {
   PIPELINE_DECISION_KIND,
   PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_DNS_MODE,
+  PROXY_GEO_STRICTNESS,
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
+  PROXY_PROVIDER_COUNTRY_SELECTION,
+  PROXY_PROVIDER_GEO_MODE,
   PROXY_ROUTE_AUTH_MODE,
   PROXY_ROUTE_HOP_KIND,
   PROXY_ROUTE_KIND,
@@ -64,12 +67,33 @@ export interface ProxyDnsRequirements {
   resolution: ProxyDnsMode;
 }
 
+export interface ProxyGeoRequirements {
+  asn?: number;
+  city?: string;
+  country?: string;
+  postalCode?: string;
+  region?: string;
+  strictness?: PROXY_GEO_STRICTNESS;
+  verify?: boolean;
+}
+
+export interface ProxyVerificationRequirements {
+  cacheTtlMs?: number;
+  maxVerificationAttempts?: number;
+  rejectOnGeoMismatch?: boolean;
+  retryOnGeoMismatch?: boolean;
+  verificationTimeoutMs?: number;
+  verifyExit?: boolean;
+}
+
 export interface ProxyRouteRequirements {
   dns?: ProxyDnsRequirements;
   excludeProviderInstanceIds?: string[];
+  geo?: ProxyGeoRequirements;
   networkTypes?: ProxyNetworkType[];
   protocols?: ProxyProtocol[];
   providerInstanceIds?: string[];
+  verification?: ProxyVerificationRequirements;
   [requirementName: string]: unknown;
 }
 
@@ -113,6 +137,7 @@ export interface ProxyExecutionAttempt {
   requirements?: ProxyRouteRequirements;
   retryOn?: RETRY_CONDITION[];
   timeoutMs?: number;
+  verification?: ProxyVerificationRequirements;
 }
 
 export interface ProxyExecutionPlan {
@@ -307,6 +332,20 @@ export interface ProxyLease {
   route: ProxyRoute;
   expiresAt?: Date;
   metadata?: Record<string, unknown>;
+  verification?: ProxyExitVerification;
+}
+
+export interface ProxyExitVerification {
+  asn?: number;
+  checkedAt: Date;
+  city?: string;
+  country?: string;
+  ip: string;
+  isTor?: boolean;
+  matchesRequirements: boolean;
+  metadata?: Record<string, unknown>;
+  region?: string;
+  source: string;
 }
 
 export interface ProxyAttemptContext {
@@ -337,8 +376,21 @@ export interface ProxyProviderDnsCapabilities {
   remoteRequired?: boolean;
 }
 
+export type ProxyProviderGeoCountries = '*' | string[];
+
+export interface ProxyProviderGeoCapabilities {
+  asnLevel?: boolean;
+  cityLevel?: boolean;
+  countries?: ProxyProviderGeoCountries;
+  countrySelection?: PROXY_PROVIDER_COUNTRY_SELECTION;
+  mode?: PROXY_PROVIDER_GEO_MODE;
+  postalCodeLevel?: boolean;
+  regionLevel?: boolean;
+}
+
 export interface ProxyProviderCapabilities {
   dns?: ProxyProviderDnsCapabilities;
+  geo?: ProxyProviderGeoCapabilities;
   networkTypes?: ProxyNetworkType[];
   protocols?: ProxyProtocol[];
   [capabilityName: string]: unknown;
@@ -375,4 +427,16 @@ export interface TargetTransportExecuteInput {
 export interface TargetTransportPort {
   execute(input: TargetTransportExecuteInput): Promise<GatewayTargetResponse>;
   supportsRoute?(route: ProxyRoute): boolean;
+}
+
+export interface ProxyExitVerifyInput {
+  expected?: ProxyGeoRequirements;
+  lease: ProxyLease;
+  requestId: string;
+  route: ProxyRoute;
+  signal: AbortSignal;
+}
+
+export interface ProxyExitVerifierPort {
+  verify(input: ProxyExitVerifyInput): Promise<ProxyExitVerification>;
 }

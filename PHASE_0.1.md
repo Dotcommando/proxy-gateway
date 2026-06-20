@@ -924,7 +924,7 @@ Verify:
 - Multipart response builder tests pass.
 - Existing JSON response builder tests pass.
 
-## 21. Geo Requirements Planning Contract Smoke
+## 21. Geo Requirements Planning Contract Smoke - Done
 
 Detailed scope:
 - Keep this as a v0.1 contract-smoke step, not a real GeoIP, DNS, Tor, or probe-target implementation.
@@ -940,6 +940,14 @@ Detailed scope:
   - verification mismatch classification remains step 23 because it requires an acquired lease and attempt signal.
 - `.onion` route capability checks stay provider/transport capability work; target access policy only decides whether the target is allowed at all.
 - This step must not call provider `acquire()`, target transport, verifier ports, DNS, GeoIP, or HTTP probe endpoints.
+
+Implemented:
+- Added package enums for geo strictness, provider geo mode, and provider country-selection mode.
+- Typed `ProxyGeoRequirements`, `ProxyVerificationRequirements`, `ProxyProviderGeoCapabilities`, `ProxyExitVerifyInput`, `ProxyExitVerification`, and `ProxyExitVerifierPort` in outbound ports and package root exports.
+- Extended `ExecutionPlanner` geo compatibility checks so strict required geo cannot be silently ignored.
+- Planned `verified-after-acquire` providers only when `exitVerifierAvailable` is configured for strict/explicit exit verification.
+- Added `ProxyExecutionAttempt.verification` as the typed marker consumed later by the attempt executor verification step.
+- Preserved expected geo requirements on generated attempts without calling provider `acquire()`, target transport, DNS, GeoIP, verifier, or probe endpoints.
 
 Red:
 - Add planner tests that a provider with `geo.mode: "unsupported"` does not satisfy `geo.strictness: "required"`.
@@ -978,6 +986,7 @@ Detailed scope:
 - Caller abort, total timeout, and per-attempt timeout must stop the active acquire/transport operation and return classified failure.
 - Route support checks stay before transport execution.
 - Response buffering remains delegated to `BodyBufferManager`.
+- If a planned attempt contains `verification`, step 22 must preserve it in the executor result/input surface but must not call `ProxyExitVerifierPort`; verification execution belongs to step 23.
 
 Red:
 - Add tests that provider `acquire()` receives request id, provider instance id, attempt context, normalized target, requirements, execution context, and active attempt signal.
@@ -1011,6 +1020,7 @@ Detailed scope:
 - Unsafe or non-replayable requests must not be retried even when the plan contains fallback attempts.
 - Response streaming already started must prevent retry/fallback.
 - It owns lease-based exit verification coordination when an attempt produced by the planner requires verification.
+- Use `ProxyExecutionAttempt.verification` plus `ProxyExecutionAttempt.requirements.geo` from step 21 as the only core trigger/expected-geo source for verifier coordination.
 - Exit verification requests must use the acquired lease/route and the active attempt `AbortSignal`.
 - Verification diagnostics must go through `RedactionService`.
 - Keep real HTTP probe/verifier implementations outside the core package; tests should use a mock verifier port.

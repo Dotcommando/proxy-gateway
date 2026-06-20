@@ -4,9 +4,12 @@ import { ExecutionPlanner } from '../src/app/planning';
 import {
   PLANNER_RESULT_KIND,
   PROXY_DNS_MODE,
+  PROXY_GEO_STRICTNESS,
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
+  PROXY_PROVIDER_COUNTRY_SELECTION,
+  PROXY_PROVIDER_GEO_MODE,
   PROXY_ROUTE_KIND,
   RESPONSE_CODE,
 } from '../src/constants';
@@ -20,6 +23,8 @@ describe('ExecutionPlanner', () => {
     expect(PROXY_PROTOCOL.SOCKS5H).toBe('socks5h');
     expect(PROXY_DNS_MODE.PROXY).toBe('proxy');
     expect(PROXY_NETWORK_TYPE.TOR).toBe('tor');
+    expect(PROXY_GEO_STRICTNESS.REQUIRED).toBe('required');
+    expect(PROXY_PROVIDER_GEO_MODE.VERIFIED_AFTER_ACQUIRE).toBe('verified-after-acquire');
     expect(RESPONSE_CODE.NO_PLANNABLE_PROVIDER).toBe('NO_PLANNABLE_PROVIDER');
   });
 
@@ -295,6 +300,238 @@ describe('ExecutionPlanner', () => {
       expect(result.plan.attempts).toHaveLength(1);
       expect(result.plan.attempts[0]?.providerInstanceId).toBe('static-secondary');
     }
+  });
+
+  it('rejects providers with unsupported geo for required country requirements', async () => {
+    let acquireCalls = 0;
+    const planner = new ExecutionPlanner({
+      providers: [
+        provider(
+          'geo-unsupported',
+          {
+            geo: {
+              countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.NOT_SUPPORTED,
+              mode: PROXY_PROVIDER_GEO_MODE.UNSUPPORTED,
+            },
+            protocols: [PROXY_PROTOCOL.HTTP],
+          },
+          {
+            acquire: async () => {
+              acquireCalls += 1;
+
+              throw new Error('planner must not acquire');
+            },
+          },
+        ),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            requirements: {
+              geo: {
+                country: 'GB',
+                strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+              },
+              protocols: [PROXY_PROTOCOL.HTTP],
+            },
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result).toEqual({
+      code: RESPONSE_CODE.NO_PLANNABLE_PROVIDER,
+      kind: PLANNER_RESULT_KIND.REJECTED,
+      message: 'No provider can satisfy the plan attempt requirements.',
+    });
+    expect(acquireCalls).toBe(0);
+  });
+
+  it('plans guaranteed geo when the required country is advertised', async () => {
+    const requirements = {
+      geo: {
+        country: 'gb',
+        strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+      },
+      protocols: [PROXY_PROTOCOL.HTTP],
+    };
+    const planner = new ExecutionPlanner({
+      providers: [
+        provider('geo-guaranteed', {
+          geo: {
+            countries: ['GB', 'US'],
+            countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.PER_REQUEST,
+            mode: PROXY_PROVIDER_GEO_MODE.GUARANTEED,
+          },
+          protocols: [PROXY_PROTOCOL.HTTP],
+        }),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            provider: 'geo-guaranteed',
+            requirements,
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result.kind).toBe(PLANNER_RESULT_KIND.PLANNED);
+
+    if (result.kind === PLANNER_RESULT_KIND.PLANNED) {
+      expect(result.plan.attempts[0]?.requirements).toEqual(requirements);
+      expect(result.plan.attempts[0]?.verification).toBeUndefined();
+    }
+  });
+
+  it('plans guaranteed geo when the provider advertises all countries', async () => {
+    const planner = new ExecutionPlanner({
+      providers: [
+        provider('geo-any-country', {
+          geo: {
+            countries: '*',
+            countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.PROVIDER_CONFIG,
+            mode: PROXY_PROVIDER_GEO_MODE.GUARANTEED,
+          },
+          protocols: [PROXY_PROTOCOL.HTTP],
+        }),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            requirements: {
+              geo: {
+                country: 'CA',
+                strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+              },
+            },
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result.kind).toBe(PLANNER_RESULT_KIND.PLANNED);
+  });
+
+  it('does not let best-effort geo satisfy strict required country requirements', async () => {
+    const planner = new ExecutionPlanner({
+      providers: [
+        provider('best-effort-geo', {
+          geo: {
+            countries: '*',
+            countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.PER_REQUEST,
+            mode: PROXY_PROVIDER_GEO_MODE.BEST_EFFORT,
+          },
+          protocols: [PROXY_PROTOCOL.HTTP],
+        }),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            requirements: {
+              geo: {
+                country: 'DE',
+                strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+              },
+            },
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result.kind).toBe(PLANNER_RESULT_KIND.REJECTED);
+  });
+
+  it('plans verified-after-acquire geo only when exit verification is available', async () => {
+    const requirements = {
+      geo: {
+        country: 'DE',
+        strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+      },
+    };
+    const planner = new ExecutionPlanner({
+      exitVerifierAvailable: true,
+      providers: [
+        provider('verified-geo', {
+          geo: {
+            countries: '*',
+            countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.EXTERNAL_OR_PROVIDER_CONFIG,
+            mode: PROXY_PROVIDER_GEO_MODE.VERIFIED_AFTER_ACQUIRE,
+          },
+          protocols: [PROXY_PROTOCOL.SOCKS5H],
+        }),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            provider: 'verified-geo',
+            requirements,
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result.kind).toBe(PLANNER_RESULT_KIND.PLANNED);
+
+    if (result.kind === PLANNER_RESULT_KIND.PLANNED) {
+      expect(result.plan.attempts[0]?.requirements).toEqual(requirements);
+      expect(result.plan.attempts[0]?.verification).toEqual({
+        rejectOnGeoMismatch: true,
+        verifyExit: true,
+      });
+    }
+  });
+
+  it('rejects verified-after-acquire strict geo when no verifier contract is configured', async () => {
+    const planner = new ExecutionPlanner({
+      providers: [
+        provider('verified-geo', {
+          geo: {
+            countries: '*',
+            countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.EXTERNAL_OR_PROVIDER_CONFIG,
+            mode: PROXY_PROVIDER_GEO_MODE.VERIFIED_AFTER_ACQUIRE,
+          },
+          protocols: [PROXY_PROTOCOL.SOCKS5H],
+        }),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            provider: 'verified-geo',
+            requirements: {
+              geo: {
+                country: 'DE',
+                strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+              },
+            },
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result).toEqual({
+      code: RESPONSE_CODE.NO_PLANNABLE_PROVIDER,
+      kind: PLANNER_RESULT_KIND.REJECTED,
+      message: 'No provider can satisfy the plan attempt requirements.',
+    });
   });
 });
 

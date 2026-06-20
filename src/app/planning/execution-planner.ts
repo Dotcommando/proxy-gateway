@@ -1,13 +1,24 @@
-import { PLANNER_RESULT_KIND, PROXY_DNS_MODE, PROXY_PLAN_KIND, RESPONSE_CODE, RETRY_CONDITION } from '../../constants';
+import {
+  PLANNER_RESULT_KIND,
+  PROXY_DNS_MODE,
+  PROXY_GEO_STRICTNESS,
+  PROXY_PLAN_KIND,
+  PROXY_PROVIDER_GEO_MODE,
+  RESPONSE_CODE,
+  RETRY_CONDITION,
+} from '../../constants';
 import type {
   ProxyExecutionAttempt,
   ProxyExecutionPlan,
+  ProxyGeoRequirements,
   ProxyProviderCapabilities,
   ProxyProviderInstance,
   ProxyRouteRequirements,
+  ProxyVerificationRequirements,
 } from '../../ports/outbound';
 
 export interface ExecutionPlannerOptions {
+  exitVerifierAvailable?: boolean;
   providers: ProxyProviderInstance[];
 }
 
@@ -55,9 +66,12 @@ type ProviderSelectionResult =
   | ProviderWithCapabilities;
 
 export class ExecutionPlanner {
+  readonly #exitVerifierAvailable: boolean;
+
   readonly #providers: ProxyProviderInstance[];
 
   constructor(options: ExecutionPlannerOptions) {
+    this.#exitVerifierAvailable = options.exitVerifierAvailable ?? false;
     this.#providers = options.providers;
   }
 
@@ -111,7 +125,7 @@ export class ExecutionPlanner {
 
       const capabilities = await getCapabilities(provider, capabilitySnapshots);
 
-      return satisfiesRequirements(capabilities, attemptConfig.requirements)
+      return satisfiesRequirements(capabilities, attemptConfig.requirements, this.#exitVerifierAvailable)
         ? { capabilities, provider }
         : noPlannableProvider();
     }
@@ -146,7 +160,7 @@ export class ExecutionPlanner {
     for (const provider of candidates) {
       const capabilities = await getCapabilities(provider, capabilitySnapshots);
 
-      if (satisfiesRequirements(capabilities, attemptConfig.requirements)) {
+      if (satisfiesRequirements(capabilities, attemptConfig.requirements, this.#exitVerifierAvailable)) {
         return {
           capabilities,
           provider,
@@ -184,6 +198,12 @@ function createExecutionAttempt(
     attempt.timeoutMs = attemptConfig.timeoutMs;
   }
 
+  const verification = createAttemptVerification(attemptConfig.requirements, selection.capabilities);
+
+  if (verification !== undefined) {
+    attempt.verification = verification;
+  }
+
   return attempt;
 }
 
@@ -207,6 +227,7 @@ async function getCapabilities(
 function satisfiesRequirements(
   capabilities: ProxyProviderCapabilities,
   requirements: ProxyRouteRequirements | undefined,
+  exitVerifierAvailable: boolean,
 ): boolean {
   if (requirements === undefined) {
     return true;
@@ -232,6 +253,9 @@ function satisfiesRequirements(
   ) {
     return false;
   }
+  if (!satisfiesGeoRequirements(capabilities, requirements, exitVerifierAvailable)) {
+    return false;
+  }
 
   return true;
 }
@@ -246,6 +270,94 @@ function dnsModeSatisfies(capabilityMode: string, requiredMode: string): boolean
     || capabilityMode === PROXY_DNS_MODE.ANY
     || capabilityMode === requiredMode
   );
+}
+
+function satisfiesGeoRequirements(
+  capabilities: ProxyProviderCapabilities,
+  requirements: ProxyRouteRequirements,
+  exitVerifierAvailable: boolean,
+): boolean {
+  const geo = requirements.geo;
+
+  if (geo === undefined) {
+    return true;
+  }
+
+  const strictness = getGeoStrictness(geo);
+  const mode = capabilities.geo?.mode ?? PROXY_PROVIDER_GEO_MODE.UNSUPPORTED;
+
+  if (strictness === PROXY_GEO_STRICTNESS.BEST_EFFORT) {
+    return true;
+  }
+  if (mode === PROXY_PROVIDER_GEO_MODE.UNSUPPORTED) {
+    return false;
+  }
+  if (mode === PROXY_PROVIDER_GEO_MODE.BEST_EFFORT) {
+    return strictness !== PROXY_GEO_STRICTNESS.REQUIRED;
+  }
+  if (mode === PROXY_PROVIDER_GEO_MODE.GUARANTEED) {
+    return countryRequirementSatisfied(capabilities, geo);
+  }
+  if (mode === PROXY_PROVIDER_GEO_MODE.VERIFIED_AFTER_ACQUIRE) {
+    return !geoRequiresExitVerification(geo, requirements.verification) || exitVerifierAvailable;
+  }
+
+  return false;
+}
+
+function getGeoStrictness(geo: ProxyGeoRequirements): PROXY_GEO_STRICTNESS {
+  return geo.strictness ?? PROXY_GEO_STRICTNESS.REQUIRED;
+}
+
+function countryRequirementSatisfied(
+  capabilities: ProxyProviderCapabilities,
+  geo: ProxyGeoRequirements,
+): boolean {
+  const requiredCountry = normalizeCountry(geo.country);
+
+  if (requiredCountry === undefined) {
+    return true;
+  }
+  if (capabilities.geo?.countries === '*') {
+    return true;
+  }
+  if (capabilities.geo?.countries === undefined) {
+    return false;
+  }
+
+  return capabilities.geo.countries.some((country) => normalizeCountry(country) === requiredCountry);
+}
+
+function createAttemptVerification(
+  requirements: ProxyRouteRequirements | undefined,
+  capabilities: ProxyProviderCapabilities,
+): ProxyVerificationRequirements | undefined {
+  if (
+    requirements?.geo === undefined
+    || capabilities.geo?.mode !== PROXY_PROVIDER_GEO_MODE.VERIFIED_AFTER_ACQUIRE
+    || !geoRequiresExitVerification(requirements.geo, requirements.verification)
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(requirements.verification ?? {}),
+    rejectOnGeoMismatch:
+      requirements.verification?.rejectOnGeoMismatch
+      ?? getGeoStrictness(requirements.geo) === PROXY_GEO_STRICTNESS.REQUIRED,
+    verifyExit: true,
+  };
+}
+
+function geoRequiresExitVerification(
+  geo: ProxyGeoRequirements,
+  verification: ProxyVerificationRequirements | undefined,
+): boolean {
+  return verification?.verifyExit === true || geo.verify === true || getGeoStrictness(geo) === PROXY_GEO_STRICTNESS.REQUIRED;
+}
+
+function normalizeCountry(country: string | undefined): string | undefined {
+  return country?.trim().toUpperCase();
 }
 
 function providerNotFound(
