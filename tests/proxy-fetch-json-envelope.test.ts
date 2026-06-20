@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  ProxyFetchEnvelopeBuilder,
   ProxyFetchEnvelopeParser,
   ProxyFetchJsonEnvelopeBuilder,
   ProxyFetchJsonEnvelopeParser,
@@ -21,6 +22,7 @@ import {
 const parser = new ProxyFetchJsonEnvelopeParser();
 const envelopeParser = new ProxyFetchEnvelopeParser();
 const builder = new ProxyFetchJsonEnvelopeBuilder();
+const envelopeBuilder = new ProxyFetchEnvelopeBuilder();
 
 describe('ProxyFetchJsonEnvelopeParser', () => {
   it('parses a proxy-fetch JSON envelope with a null body', async () => {
@@ -471,6 +473,30 @@ describe('ProxyFetchJsonEnvelopeBuilder', () => {
     });
   });
 
+  it('removes stale target response body framing headers from JSON envelopes', async () => {
+    const response = builder.buildTargetResponse({
+      body: {
+        bytes: new Uint8Array([1, 2, 3, 4]),
+        kind: 'bytes',
+        replayability: 'replayable',
+      },
+      headers: [
+        ['content-type', 'application/octet-stream'],
+        ['content-length', '999'],
+        ['transfer-encoding', 'chunked'],
+      ],
+      status: 200,
+      statusText: 'OK',
+      url: 'https://example.com/base64',
+    });
+
+    await expect(response.json()).resolves.toMatchObject({
+      response: {
+        headers: [['content-type', 'application/octet-stream']],
+      },
+    });
+  });
+
   it.each(['error', 'opaque', 'opaqueredirect'] as const)('builds a special %s response shape', async (type) => {
     const response = builder.buildTargetResponse({
       body: {
@@ -563,6 +589,153 @@ describe('ProxyFetchJsonEnvelopeBuilder', () => {
   });
 });
 
+describe('ProxyFetchEnvelopeBuilder response negotiation', () => {
+  it('builds a multipart response for binary bodies when service Accept allows multipart', async () => {
+    const response = envelopeBuilder.buildTargetResponse(binaryTargetResponse([0, 1, 2, 255]), serviceHeaders({
+      accept: 'application/json, multipart/form-data',
+    }));
+    const parsed = await parseMultipartResponse(response);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain(MULTIPART_CONTENT_TYPE_PREFIX);
+    expect(parsed.meta).toEqual({
+      ok: true,
+      response: {
+        body: {
+          kind: BODY_KIND_BINARY,
+          partName: BINARY_BODY_PART_NAME,
+        },
+        headers: [['content-type', OCTET_STREAM_CONTENT_TYPE]],
+        redirected: false,
+        status: 200,
+        statusText: 'OK',
+        type: 'basic',
+        url: 'https://example.com/binary',
+      },
+      version: WIRE_PROTOCOL_VERSION,
+    });
+    expect(Array.from(parsed.body)).toEqual([0, 1, 2, 255]);
+  });
+
+  it('uses JSON base64 for binary bodies when service Accept is JSON-only or missing', async () => {
+    const jsonOnlyResponse = envelopeBuilder.buildTargetResponse(binaryTargetResponse([1, 2, 3]), serviceHeaders({
+      accept: 'application/json',
+    }));
+    const missingAcceptResponse = envelopeBuilder.buildTargetResponse(binaryTargetResponse([4, 5, 6]), new Headers());
+
+    expect(jsonOnlyResponse.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(jsonOnlyResponse.json()).resolves.toMatchObject({
+      response: {
+        body: {
+          data: 'AQID',
+          kind: 'base64',
+        },
+      },
+    });
+    expect(missingAcceptResponse.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(missingAcceptResponse.json()).resolves.toMatchObject({
+      response: {
+        body: {
+          data: 'BAUG',
+          kind: 'base64',
+        },
+      },
+    });
+  });
+
+  it('returns a stable service error when service Accept allows neither JSON nor multipart for binary bodies', async () => {
+    const response = envelopeBuilder.buildTargetResponse(binaryTargetResponse([1]), serviceHeaders({
+      accept: 'text/plain',
+    }));
+
+    expect(response.status).toBe(406);
+    expect(response.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: RESPONSE_CODE.INVALID_PROXY_FETCH_REQUEST,
+        message: 'Service response content negotiation failed.',
+        retryable: false,
+      },
+      ok: false,
+      version: WIRE_PROTOCOL_VERSION,
+    });
+  });
+
+  it('keeps null-body statuses and special response types JSON-only even when multipart is accepted', async () => {
+    const nullBodyResponse = envelopeBuilder.buildTargetResponse(
+      {
+        ...binaryTargetResponse([1, 2, 3]),
+        status: 204,
+        statusText: 'No Content',
+      },
+      serviceHeaders({ accept: 'multipart/form-data' }),
+    );
+    const specialResponse = envelopeBuilder.buildTargetResponse(
+      {
+        body: {
+          kind: 'none',
+          replayability: 'replayable',
+        },
+        headers: [],
+        status: 0,
+        statusText: '',
+        type: 'opaque',
+        url: '',
+      },
+      serviceHeaders({ accept: 'multipart/form-data' }),
+    );
+
+    expect(nullBodyResponse.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(nullBodyResponse.json()).resolves.toMatchObject({
+      response: {
+        body: null,
+        status: 204,
+      },
+    });
+    expect(specialResponse.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(specialResponse.json()).resolves.toMatchObject({
+      response: {
+        body: null,
+        status: 0,
+        type: 'opaque',
+      },
+    });
+  });
+
+  it('removes stale target response body framing headers from multipart metadata', async () => {
+    const response = envelopeBuilder.buildTargetResponse(
+      {
+        ...binaryTargetResponse([1, 2, 3]),
+        headers: [
+          ['content-type', OCTET_STREAM_CONTENT_TYPE],
+          ['content-length', '999'],
+          ['transfer-encoding', 'chunked'],
+        ],
+      },
+      serviceHeaders({ accept: 'multipart/form-data' }),
+    );
+    const parsed = await parseMultipartResponse(response);
+
+    expect(parsed.meta.response.headers).toEqual([['content-type', OCTET_STREAM_CONTENT_TYPE]]);
+  });
+
+  it('keeps service errors as JSON regardless of service Accept', async () => {
+    const response = envelopeBuilder.buildServiceError(502, {
+      code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+      message: 'Failed.',
+      retryable: true,
+    });
+
+    expect(response.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+      },
+      ok: false,
+    });
+  });
+});
+
 function jsonRequest(envelope: unknown): Request {
   return new Request('https://gateway.test/proxy', {
     body: JSON.stringify(envelope),
@@ -571,6 +744,141 @@ function jsonRequest(envelope: unknown): Request {
     },
     method: 'POST',
   });
+}
+
+function serviceHeaders(headers: { accept?: string }): Headers {
+  const result = new Headers();
+
+  if (headers.accept !== undefined) {
+    result.set('accept', headers.accept);
+  }
+
+  return result;
+}
+
+function binaryTargetResponse(bytes: number[]): {
+  body: {
+    bytes: Uint8Array;
+    kind: 'bytes';
+    replayability: 'replayable';
+  };
+  headers: Array<[string, string]>;
+  status: number;
+  statusText: string;
+  url: string;
+} {
+  return {
+    body: {
+      bytes: new Uint8Array(bytes),
+      kind: 'bytes',
+      replayability: 'replayable',
+    },
+    headers: [['content-type', OCTET_STREAM_CONTENT_TYPE]],
+    status: 200,
+    statusText: 'OK',
+    url: 'https://example.com/binary',
+  };
+}
+
+interface ParsedMultipartResponse {
+  body: Uint8Array;
+  meta: {
+    ok: boolean;
+    response: {
+      body: unknown;
+      headers: Array<[string, string]>;
+      redirected: boolean;
+      status: number;
+      statusText: string;
+      type: ResponseType;
+      url: string;
+    };
+    version: string;
+  };
+}
+
+async function parseMultipartResponse(response: Response): Promise<ParsedMultipartResponse> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const boundary = contentType.split(';').find((part) => part.trim().startsWith('boundary='))?.split('=')[1];
+
+  if (boundary === undefined) {
+    throw new Error('Missing multipart response boundary.');
+  }
+
+  const rawBody = Buffer.from(await response.arrayBuffer()).toString('latin1');
+  const [metaPart, bodyPart] = rawBody
+    .split(`--${boundary}`)
+    .filter((part) => part.trim() !== '' && part.trim() !== '--');
+
+  if (metaPart === undefined || bodyPart === undefined) {
+    throw new Error('Expected multipart response meta and body parts.');
+  }
+
+  const metaBody = metaPart.slice(metaPart.indexOf('\r\n\r\n') + '\r\n\r\n'.length).replace(/\r\n$/, '');
+  const binaryBody = bodyPart.slice(bodyPart.indexOf('\r\n\r\n') + '\r\n\r\n'.length).replace(/\r\n$/, '');
+
+  return {
+    body: new Uint8Array(Buffer.from(binaryBody, 'latin1')),
+    meta: parseMultipartResponseMeta(JSON.parse(metaBody)),
+  };
+}
+
+function parseMultipartResponseMeta(value: unknown): ParsedMultipartResponse['meta'] {
+  if (!isRecord(value) || !isRecord(value.response)) {
+    throw new Error('Expected multipart response meta envelope.');
+  }
+
+  return {
+    ok: value.ok === true,
+    response: {
+      body: value.response.body,
+      headers: parseHeaderPairs(value.response.headers),
+      redirected: value.response.redirected === true,
+      status: typeof value.response.status === 'number' ? value.response.status : -1,
+      statusText: typeof value.response.statusText === 'string' ? value.response.statusText : '',
+      type: parseResponseType(value.response.type),
+      url: typeof value.response.url === 'string' ? value.response.url : '',
+    },
+    version: typeof value.version === 'string' ? value.version : '',
+  };
+}
+
+function parseHeaderPairs(value: unknown): Array<[string, string]> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (
+      !Array.isArray(entry)
+      || entry.length !== 2
+      || typeof entry[0] !== 'string'
+      || typeof entry[1] !== 'string'
+    ) {
+      return [];
+    }
+
+    return [[entry[0], entry[1]]];
+  });
+}
+
+function parseResponseType(value: unknown): ResponseType {
+  if (
+    value === 'basic'
+    || value === 'cors'
+    || value === 'default'
+    || value === 'error'
+    || value === 'opaque'
+    || value === 'opaqueredirect'
+  ) {
+    return value;
+  }
+
+  return 'basic';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function multipartEnvelope(overrides: {

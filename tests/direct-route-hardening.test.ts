@@ -212,6 +212,55 @@ describe('direct route execution hardening', () => {
       expect(Array.from(executedTargets[0].body.bytes)).toEqual([9, 8, 7, 6]);
     }
   });
+
+  it('uses service Accept, not target accept headers, for binary response format selection', async () => {
+    const gateway = createProxyGateway({
+      providers: [directProvider()],
+      transport: {
+        execute: async () => ({
+          body: {
+            bytes: new Uint8Array([1, 2, 3]),
+            kind: 'bytes',
+            replayability: 'replayable',
+          },
+          headers: [['content-type', OCTET_STREAM_CONTENT_TYPE]],
+          status: 200,
+          statusText: 'OK',
+          url: 'https://example.com/binary',
+        }),
+      },
+    });
+    const multipartResponse = await gateway.handle(
+      proxyFetchJsonRequest(
+        {
+          request: {
+            headers: [['accept', 'application/json']],
+          },
+        },
+        {
+          accept: 'application/json, multipart/form-data',
+        },
+      ),
+    );
+    const jsonResponse = await gateway.handle(
+      proxyFetchJsonRequest({
+        request: {
+          headers: [['accept', 'multipart/form-data']],
+        },
+      }),
+    );
+
+    expect(multipartResponse.headers.get('content-type')).toContain(MULTIPART_CONTENT_TYPE_PREFIX);
+    expect(jsonResponse.headers.get('content-type')).toContain(JSON_CONTENT_TYPE);
+    await expect(jsonResponse.json()).resolves.toMatchObject({
+      response: {
+        body: {
+          data: 'AQID',
+          kind: 'base64',
+        },
+      },
+    });
+  });
 });
 
 function directProvider(
@@ -268,7 +317,18 @@ function proxyFetchJsonRequest(
     context?: Record<string, unknown>;
     request?: Record<string, unknown>;
   } = {},
+  serviceHeaders: {
+    accept?: string;
+  } = {},
 ): Request {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+
+  if (serviceHeaders.accept !== undefined) {
+    headers.accept = serviceHeaders.accept;
+  }
+
   return new Request('https://gateway.test/proxy', {
     body: JSON.stringify({
       version: WIRE_PROTOCOL_VERSION,
@@ -284,9 +344,7 @@ function proxyFetchJsonRequest(
       },
       context: envelopePatch.context ?? {},
     }),
-    headers: {
-      'content-type': 'application/json',
-    },
+    headers,
     method: 'POST',
   });
 }

@@ -872,7 +872,16 @@ Verify:
 - Multipart request parser tests pass.
 - Existing JSON parser/builder and body-buffering tests still pass.
 
-## 20. Multipart Response Builder
+## 20. Multipart Response Builder - Done
+
+Implemented:
+- Added `ProxyFetchEnvelopeBuilder` with service response format negotiation.
+- Added multipart response building for binary target responses when the service `Accept` header allows `multipart/form-data`.
+- Kept JSON text/null/base64 response behavior intact, with missing service `Accept` defaulting to JSON.
+- Kept service-error envelopes JSON-only.
+- Added stable 406 service error for binary responses when explicit service `Accept` allows neither JSON nor multipart.
+- Removed stale target response body-framing headers from JSON and multipart service response metadata.
+- Wired direct gateway response building through service request headers and verified target `accept` headers do not affect service response format.
 
 Detailed scope:
 - Keep multipart response building in `src/app/envelopes`.

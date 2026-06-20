@@ -17,7 +17,7 @@ import type {
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
-import { ProxyFetchEnvelopeParser, ProxyFetchJsonEnvelopeBuilder } from '../envelopes/proxy-fetch-json-envelope';
+import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
 import { RedactionService } from '../redaction';
 import { TargetAccessGuard } from '../security';
 import {
@@ -31,7 +31,7 @@ import type { ProxyGatewayOptions } from '../types';
 
 export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #bodyBufferManager: BodyBufferManager;
-  readonly #jsonEnvelopeBuilder = new ProxyFetchJsonEnvelopeBuilder();
+  readonly #envelopeBuilder = new ProxyFetchEnvelopeBuilder();
   readonly #envelopeParser: ProxyFetchEnvelopeParser;
   readonly #options: ProxyGatewayOptions;
   readonly #resultClassifier: ResultClassifier;
@@ -64,7 +64,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       const targetAccess = this.#targetAccessGuard.check({ target });
 
       if (targetAccess.kind === TARGET_ACCESS_RESULT_KIND.REJECTED) {
-        return this.#jsonEnvelopeBuilder.buildServiceError(targetAccess.status, {
+        return this.#envelopeBuilder.buildServiceError(targetAccess.status, {
           code: targetAccess.code,
           message: targetAccess.message,
           retryable: false,
@@ -77,19 +77,19 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       );
 
       if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED) {
-        return this.#jsonEnvelopeBuilder.buildServiceError(500, {
+        return this.#envelopeBuilder.buildServiceError(500, {
           code: RESPONSE_CODE.NO_PROVIDER_AVAILABLE,
           message: 'No enabled proxy provider is available.',
         });
       }
       if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND) {
-        return this.#jsonEnvelopeBuilder.buildServiceError(500, {
+        return this.#envelopeBuilder.buildServiceError(500, {
           code: RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND,
           message: `Provider instance "${providerSelection.providerInstanceId}" was not found or is disabled.`,
         });
       }
       if (!this.#options.transport) {
-        return this.#jsonEnvelopeBuilder.buildServiceError(500, {
+        return this.#envelopeBuilder.buildServiceError(500, {
           code: RESPONSE_CODE.TRANSPORT_NOT_CONFIGURED,
           message: 'No target transport is configured.',
         });
@@ -121,7 +121,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         );
         const attemptResponse = await executeDirectAttempt({
           bodyBufferManager: this.#bodyBufferManager,
-          jsonEnvelopeBuilder: this.#jsonEnvelopeBuilder,
+          envelopeBuilder: this.#envelopeBuilder,
           lease,
           provider,
           requestId,
@@ -142,7 +142,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
           response: attemptResponse,
         });
 
-        return this.#jsonEnvelopeBuilder.buildTargetResponse(attemptResponse);
+        return this.#envelopeBuilder.buildTargetResponse(attemptResponse, request.headers);
       } finally {
         attemptScope.dispose();
       }
@@ -150,10 +150,10 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       const timeoutObservation = readTimeoutObservation(error);
 
       if (timeoutObservation !== undefined) {
-        return buildTimeoutServiceError(this.#jsonEnvelopeBuilder, this.#resultClassifier, timeoutObservation);
+        return buildTimeoutServiceError(this.#envelopeBuilder, this.#resultClassifier, timeoutObservation);
       }
 
-      return this.#jsonEnvelopeBuilder.buildServiceError(400, {
+      return this.#envelopeBuilder.buildServiceError(400, {
         code: RESPONSE_CODE.INVALID_PROXY_FETCH_REQUEST,
         message: error instanceof Error ? error.message : 'Invalid proxy-fetch request.',
       });
@@ -189,7 +189,7 @@ function selectProviderInstance(
 
 async function executeDirectAttempt(input: {
   bodyBufferManager: BodyBufferManager;
-  jsonEnvelopeBuilder: ProxyFetchJsonEnvelopeBuilder;
+  envelopeBuilder: ProxyFetchEnvelopeBuilder;
   lease: ProxyLease;
   provider: ProxyProviderInstance;
   requestId: string;
@@ -213,7 +213,7 @@ async function executeDirectAttempt(input: {
 
     const serviceError = classified.serviceError;
 
-    return input.jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
+    return input.envelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
       code: serviceError?.code ?? RESPONSE_CODE.UNSUPPORTED_ROUTE,
       message: serviceError?.message ?? message,
       retryable: serviceError?.retryable ?? false,
@@ -249,7 +249,7 @@ async function executeDirectAttempt(input: {
 
       const serviceError = classified.serviceError;
 
-      return input.jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
+      return input.envelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
         code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_TIMEOUT,
         message: serviceError?.message ?? GATEWAY_TIMEOUT_MESSAGE,
         retryable: serviceError?.retryable ?? false,
@@ -267,7 +267,7 @@ async function executeDirectAttempt(input: {
 
     const serviceError = classified.serviceError;
 
-    return input.jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
+    return input.envelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
       code: serviceError?.code ?? RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
       message: serviceError?.message ?? 'Target transport execution failed.',
       retryable: serviceError?.retryable ?? true,
@@ -276,7 +276,7 @@ async function executeDirectAttempt(input: {
 }
 
 function buildTimeoutServiceError(
-  jsonEnvelopeBuilder: ProxyFetchJsonEnvelopeBuilder,
+  envelopeBuilder: ProxyFetchEnvelopeBuilder,
   resultClassifier: ResultClassifier,
   timeoutObservation: TimeoutObservation,
 ): Response {
@@ -285,7 +285,7 @@ function buildTimeoutServiceError(
   });
   const serviceError = classified.serviceError;
 
-  return jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
+  return envelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
     code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_TIMEOUT,
     message: serviceError?.message ?? GATEWAY_TIMEOUT_MESSAGE,
     retryable: serviceError?.retryable ?? false,

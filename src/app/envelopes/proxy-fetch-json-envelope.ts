@@ -1,4 +1,7 @@
+import { randomUUID } from 'node:crypto';
+
 import {
+  ACCEPT_HEADER_NAME,
   BINARY_BODY_PART_NAME,
   BODY_ENCODING_BASE64,
   BODY_KIND_BASE64,
@@ -11,6 +14,7 @@ import {
   MULTIPART_CONTENT_TYPE_PREFIX,
   MULTIPART_CRLF,
   MULTIPART_HEADER_SEPARATOR,
+  OCTET_STREAM_CONTENT_TYPE,
   RESPONSE_CODE,
   WIRE_PROTOCOL_VERSION,
 } from '../../constants';
@@ -26,6 +30,7 @@ import type { BodyBufferingPolicy } from '../types';
 
 const NULL_BODY_STATUS_CODES = new Set([204, 205, 304]);
 const SPECIAL_RESPONSE_TYPES = new Set<ResponseType>(['error', 'opaque', 'opaqueredirect']);
+const BODY_FRAMING_HEADERS = new Set(['content-length', 'transfer-encoding']);
 
 export interface ParsedProxyFetchRequest {
   target: GatewayTargetRequest;
@@ -143,6 +148,31 @@ export class ProxyFetchJsonEnvelopeBuilder {
   }
 }
 
+export class ProxyFetchEnvelopeBuilder {
+  readonly #jsonBuilder = new ProxyFetchJsonEnvelopeBuilder();
+
+  buildTargetResponse(targetResponse: GatewayTargetResponse, serviceHeaders: Headers = new Headers()): Response {
+    const format = selectServiceResponseFormat(targetResponse, serviceHeaders);
+
+    if (format === SERVICE_RESPONSE_FORMAT.UNSUPPORTED) {
+      return this.buildServiceError(406, {
+        code: RESPONSE_CODE.INVALID_PROXY_FETCH_REQUEST,
+        message: 'Service response content negotiation failed.',
+        retryable: false,
+      });
+    }
+    if (format === SERVICE_RESPONSE_FORMAT.MULTIPART) {
+      return multipartTargetResponse(targetResponse);
+    }
+
+    return this.#jsonBuilder.buildTargetResponse(targetResponse);
+  }
+
+  buildServiceError(status: number, error: ServiceError): Response {
+    return this.#jsonBuilder.buildServiceError(status, error);
+  }
+}
+
 function parseJsonObject(input: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(input);
 
@@ -227,8 +257,17 @@ function normalizeContext(value: unknown): GatewayExecutionContext {
   return context;
 }
 
-function serializeTargetResponse(targetResponse: GatewayTargetResponse): {
-  body: ReturnType<typeof serializeBody>;
+type SerializedResponseBody =
+  | { data: string; kind: typeof BODY_KIND_BASE64 }
+  | { kind: typeof BODY_KIND_BINARY; partName: typeof BINARY_BODY_PART_NAME }
+  | { kind: typeof BODY_KIND_TEXT; text: string }
+  | null;
+
+function serializeTargetResponse(
+  targetResponse: GatewayTargetResponse,
+  bodyOverride?: SerializedResponseBody,
+): {
+  body: SerializedResponseBody;
   headers: Array<[string, string]>;
   redirected: boolean;
   status: number;
@@ -254,8 +293,8 @@ function serializeTargetResponse(targetResponse: GatewayTargetResponse): {
   }
 
   return {
-    body: NULL_BODY_STATUS_CODES.has(targetResponse.status) ? null : serializeBody(targetResponse.body),
-    headers: targetResponse.headers,
+    body: NULL_BODY_STATUS_CODES.has(targetResponse.status) ? null : (bodyOverride ?? serializeBody(targetResponse.body)),
+    headers: sanitizeTargetResponseHeaders(targetResponse.headers),
     redirected: targetResponse.redirected ?? false,
     status: targetResponse.status,
     statusText: targetResponse.statusText,
@@ -264,7 +303,7 @@ function serializeTargetResponse(targetResponse: GatewayTargetResponse): {
   };
 }
 
-function serializeBody(body: GatewayBody): { data: string; kind: typeof BODY_KIND_BASE64 } | { kind: typeof BODY_KIND_TEXT; text: string } | null {
+function serializeBody(body: GatewayBody): Exclude<SerializedResponseBody, { kind: typeof BODY_KIND_BINARY }> {
   if (body.kind === 'none') {
     return null;
   }
@@ -291,6 +330,112 @@ function jsonResponse(status: number, body: unknown): Response {
     },
     status,
   });
+}
+
+enum SERVICE_RESPONSE_FORMAT {
+  JSON = 'json',
+  MULTIPART = 'multipart',
+  UNSUPPORTED = 'unsupported',
+}
+
+function selectServiceResponseFormat(
+  targetResponse: GatewayTargetResponse,
+  serviceHeaders: Headers,
+): SERVICE_RESPONSE_FORMAT {
+  if (targetResponse.body.kind !== 'bytes' || NULL_BODY_STATUS_CODES.has(targetResponse.status)) {
+    return SERVICE_RESPONSE_FORMAT.JSON;
+  }
+
+  const acceptHeader = serviceHeaders.get(ACCEPT_HEADER_NAME);
+
+  if (acceptHeader === null || acceptHeader.trim() === '') {
+    return SERVICE_RESPONSE_FORMAT.JSON;
+  }
+
+  const accepts = parseAcceptHeader(acceptHeader);
+  const acceptsJson = accepts.includes(JSON_CONTENT_TYPE) || accepts.includes('*/*') || accepts.includes('application/*');
+  const acceptsMultipart = accepts.includes(MULTIPART_CONTENT_TYPE_PREFIX) || accepts.includes('*/*') || accepts.includes('multipart/*');
+
+  if (acceptsMultipart) {
+    return SERVICE_RESPONSE_FORMAT.MULTIPART;
+  }
+  if (acceptsJson) {
+    return SERVICE_RESPONSE_FORMAT.JSON;
+  }
+
+  return SERVICE_RESPONSE_FORMAT.UNSUPPORTED;
+}
+
+function parseAcceptHeader(value: string): string[] {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+    .filter((entry) => !entry.split(';').slice(1).some((parameter) => parameter.trim() === 'q=0'))
+    .map((entry) => entry.split(';', 1)[0]?.trim().toLowerCase())
+    .filter((entry): entry is string => entry !== undefined && entry !== '');
+}
+
+function multipartTargetResponse(targetResponse: GatewayTargetResponse): Response {
+  if (targetResponse.body.kind !== 'bytes') {
+    return new ProxyFetchJsonEnvelopeBuilder().buildTargetResponse(targetResponse);
+  }
+
+  const boundary = `proxy-gateway-response-${randomUUID()}`;
+  const metaEnvelope = {
+    ok: true,
+    response: serializeTargetResponse(targetResponse, {
+      kind: BODY_KIND_BINARY,
+      partName: BINARY_BODY_PART_NAME,
+    }),
+    version: WIRE_PROTOCOL_VERSION,
+  };
+  const body = Buffer.concat([
+    multipartResponsePart({
+      body: new TextEncoder().encode(JSON.stringify(metaEnvelope)),
+      boundary,
+      contentType: JSON_CONTENT_TYPE,
+      name: METADATA_PART_NAME,
+    }),
+    multipartResponsePart({
+      body: targetResponse.body.bytes,
+      boundary,
+      contentType: OCTET_STREAM_CONTENT_TYPE,
+      filename: BINARY_BODY_PART_NAME,
+      name: BINARY_BODY_PART_NAME,
+    }),
+    Buffer.from(`${MULTIPART_BOUNDARY_PREFIX}${boundary}${MULTIPART_BOUNDARY_PREFIX}${MULTIPART_CRLF}`, 'utf8'),
+  ]);
+
+  return new Response(body, {
+    headers: {
+      [CONTENT_TYPE_HEADER_NAME]: `${MULTIPART_CONTENT_TYPE_PREFIX}; boundary=${boundary}`,
+    },
+    status: 200,
+  });
+}
+
+function multipartResponsePart(input: {
+  body: Uint8Array;
+  boundary: string;
+  contentType: string;
+  filename?: string;
+  name: string;
+}): Buffer {
+  const disposition = input.filename === undefined
+    ? `Content-Disposition: form-data; name="${input.name}"`
+    : `Content-Disposition: form-data; name="${input.name}"; filename="${input.filename}"`;
+
+  return Buffer.concat([
+    Buffer.from(`${MULTIPART_BOUNDARY_PREFIX}${input.boundary}${MULTIPART_CRLF}`, 'utf8'),
+    Buffer.from(`${disposition}${MULTIPART_CRLF}Content-Type: ${input.contentType}${MULTIPART_HEADER_SEPARATOR}`, 'utf8'),
+    Buffer.from(input.body),
+    Buffer.from(MULTIPART_CRLF, 'utf8'),
+  ]);
+}
+
+function sanitizeTargetResponseHeaders(headers: Array<[string, string]>): Array<[string, string]> {
+  return headers.filter(([name]) => !BODY_FRAMING_HEADERS.has(name.toLowerCase()));
 }
 
 interface MultipartPart {
