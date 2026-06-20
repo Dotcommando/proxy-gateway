@@ -7,3 +7,5 @@ Provider integrations, Tor integrations, GeoIP/DNS enrichers, HTTP exit verifier
 Core outbound adapters may implement small dependency-free test or utility adapters only when they do not violate zero runtime dependencies.
 
 The in-memory proxy session store is allowed here as a dependency-free utility adapter. It must implement `ProxySessionStorePort` without provider-specific behavior, config loading, timers, or external persistence dependencies.
+
+The memory session store should persist caller-provided `expiresAt` values without interpreting expiry. It must avoid leaking stored records through caller-owned or returned object references.

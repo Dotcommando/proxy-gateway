@@ -172,7 +172,7 @@ Next three steps reassessment:
 - Step 6 is ready. It should treat expired records as missing in the app-level session manager, using the required `expiresAt` field rather than pushing expiry filtering into stores.
 - Step 7 is ready after Step 6. It should consume session-manager provider pins without changing the `ProxySessionStorePort` contract.
 
-## 5. Dependency-Free Memory Session Store
+## 5. Dependency-Free Memory Session Store - Completed
 
 Purpose:
 - Provide a useful built-in store for tests, local apps, and simple deployments without adding runtime dependencies.
@@ -192,6 +192,17 @@ Green:
 Verify:
 - Memory store tests pass.
 - Package runtime dependency tests still prove zero runtime dependencies.
+
+Progress:
+- Added memory-store-specific tests for overwrite behavior, partial touch/delete batches, missing keys, expiration timestamp storage without expiry filtering, and object-reference isolation.
+- Hardened `createMemoryProxySessionStore()` to clone records on set/get/touch, including `Date`, identity isolation scope arrays, and metadata objects.
+- Verified package runtime dependency checks still pass through `tests/package-contract.test.ts`.
+- Checked nested AGENTS files and updated `src/adapters/outbound/AGENTS.md` for no-expiry-interpretation and no-reference-leakage rules.
+
+Next three steps reassessment:
+- Step 6 is ready. It should use `SessionKeyFactory`, `ProxySessionStorePort`, required `expiresAt`, and provider-instance validation to return or reject provider pins.
+- Step 7 is ready after Step 6. It should consume the session manager output in planner input without changing memory-store semantics.
+- Step 8 is ready after Step 7. It should persist records through `ProxySessionStorePort.setMany()` and rely on the store's no-reference-leak behavior rather than adding extra cloning in the write path.
 
 ## 6. Session Manager Read Path
 
