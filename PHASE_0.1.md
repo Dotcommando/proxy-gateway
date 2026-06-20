@@ -1403,6 +1403,12 @@ Verified:
 
 ## 25. Thin Wrapper Contract Suite
 
+Detailed split:
+- 25.1 builds a reusable inbound adapter contract harness with a fake adapter implementation.
+- 25.2 implements and tests `createNodeHttpHandler(gateway)` against that harness.
+- 25.3 expands the raw body/status/error-details matrix for the Node handler using 24.4 fixtures.
+- 25.4 decides and tests dependency-free structural framework wrappers, or records that framework wrappers belong in separate packages.
+
 Red:
 - Add a shared adapter contract suite.
 - Test that an adapter preserves raw JSON body, multipart bytes, multipart boundary, response status, response headers, and response body.
@@ -1427,6 +1433,87 @@ Verify:
 - Wrapper contract tests pass.
 - Runtime dependency check still proves zero external runtime dependencies.
 - Final URL guard contract tests still pass.
+
+### 25.1 Shared Inbound Adapter Contract Harness
+
+Scope:
+- Define a reusable test harness for inbound adapters without implementing Node/framework adapters yet.
+- The harness should exercise a generic adapter factory that accepts a `ProxyGateway` and exposes a test-callable HTTP-like function.
+- Use a fake adapter in this step so the harness itself is tested before real wrappers use it.
+- Keep helper types local to tests unless a runtime public contract is needed.
+
+Red:
+- Add a failing harness self-test proving the harness sends raw JSON bytes to a fake gateway.
+- Add a failing harness self-test proving multipart bytes and boundary survive to a fake gateway.
+- Add a failing harness self-test proving response status, headers, and body from a fake gateway are preserved.
+- Add a failing harness self-test proving service error `details` survive wrapper boundaries.
+
+Green:
+- Implement only test harness utilities and fake adapter glue.
+- Do not add runtime adapter code in this substep.
+
+Verify:
+- Harness self-tests pass.
+
+### 25.2 Node HTTP Handler
+
+Scope:
+- Implement `createNodeHttpHandler(gateway)` in `src/adapters/inbound`.
+- Convert Node `IncomingMessage` into Web `Request` while preserving raw body bytes and request headers.
+- Convert Web `Response` back to Node `ServerResponse` while preserving status, headers, and body bytes.
+- Keep the handler dependency-free and thin; it must delegate to `gateway.handle()`.
+
+Red:
+- Run the 25.1 contract harness against `createNodeHttpHandler`.
+- Add a test proving the handler does not JSON-parse or pre-read bodies before constructing the Web `Request`.
+- Add a test proving request abort/stream errors are surfaced as stable handler behavior if practical without broad infrastructure.
+
+Green:
+- Add minimal Node built-in-only handler implementation.
+- Export it from `src/adapters/inbound` and package root only if intended for v0.1.
+
+Verify:
+- Node handler contract tests pass.
+- Existing gateway body/status and final URL guard tests still pass.
+
+### 25.3 Node Handler Body/Status/Error Matrix
+
+Scope:
+- Expand Node handler tests with fixtures introduced in steps 24.3 and 24.4.
+- Focus on byte preservation across the Node boundary, not gateway internals.
+
+Red:
+- Add Node handler tests for JSON text request/response.
+- Add Node handler tests for multipart binary request and multipart binary response with byte-level or sha256 assertions.
+- Add Node handler tests for null-body statuses and target HTTP statuses.
+- Add Node handler tests proving service error `details` survive unchanged.
+- Add Node handler tests proving a gateway using `finalUrlGuard` still works through the wrapper.
+
+Green:
+- Fix only Node handler translation issues exposed by these tests.
+- Keep shared fixtures reusable for possible future framework adapters.
+
+Verify:
+- Node handler matrix tests pass.
+- Full inbound adapter contract suite passes.
+
+### 25.4 Dependency-Free Structural Framework Wrapper Decision
+
+Scope:
+- Decide whether Express/Fastify/NestJS structural wrappers belong in the core package for v0.1.
+- If implemented, they must be dependency-free and must not import framework packages.
+- If not implemented, document that real framework adapters belong in separate packages or future phases.
+
+Red:
+- Add contract tests for structural wrappers only if the public export is intended for v0.1.
+- Add tests proving no framework package is imported by runtime code.
+
+Green:
+- Implement only wrappers that can stay thin, dependency-free, and well-typed.
+- Otherwise update plan/docs to defer framework wrappers.
+
+Verify:
+- Wrapper decision is reflected in README, exports, and package checks.
 
 ## 26. Public Exports and Packaging Checks
 
