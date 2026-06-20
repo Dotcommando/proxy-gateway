@@ -126,6 +126,12 @@ Expected ownership:
 
 Use-cases belong in `src/app/use-cases`. They coordinate domain objects and ports. `src/domain` stays focused on pure concepts and rules.
 
+`HandleProxyFetchRequestUseCase` owns the proxy-fetch request flow: parse the service envelope, normalize the target, enforce target access, select or obtain an execution plan, call attempt execution, and build the proxy-fetch service response envelope. It must not grow provider acquire/release, target transport, retry-loop, or lease-verification details inline when those details belong to dedicated app collaborators.
+
+`AttemptExecutor` belongs in `src/app/use-cases` because it coordinates app-layer ports and collaborators. It consumes a `ProxyExecutionPlan`, acquires provider leases, checks route support, executes the target transport, buffers target responses, applies timeout scopes, classifies outcomes, and releases leases. It must return app-layer execution results, not Web `Response` objects; envelope building stays in `HandleProxyFetchRequestUseCase`.
+
+`AttemptExecutor` must not parse proxy-fetch envelopes, perform route matching, load configuration, perform DNS/GeoIP intelligence, know provider-specific syntax, or build service response envelopes.
+
 Do not create a generic `src/utils` bucket for domain behavior. If a helper represents a gateway concept or rule, place it in the narrow domain/app module that owns that concept, such as `src/domain/matching`.
 
 `src/app/types` may have a barrel file. Keep it narrow: only app-layer composition/config/result types belong there. Do not put domain models, port contracts, request/response envelopes, or miscellaneous "just interfaces" there. If this folder stays small, prefer keeping those app-level types directly in `src/app/types/index.ts` instead of creating one tiny file per type.
@@ -134,7 +140,7 @@ Package-wide constants and enums belong in `src/constants.ts`. Wire compatibilit
 
 Target access denied address ranges must be represented as CIDR/range constants in `src/constants.ts`, not as individual blocked URL strings. Examples include `127.0.0.0/8`, `192.168.0.0/16`, `::1/128`, `fc00::/7`, and other loopback/private/link-local/multicast/unspecified ranges.
 
-When a field has a closed set of string values, define an enum instead of an inline string-literal union. Use package-wide enums in `src/constants.ts` when the values cross module boundaries. Example: prefer `export enum STRING_EXAMPLE { STRING_1 = "string1", STRING_2 = "string2" }` over `"string1" | "string2"`.
+When a field has a closed set of string values, define an enum instead of an inline string-literal union. Use package-wide enums in `src/constants.ts` when the values cross module boundaries. Example: prefer `export enum STRING_EXAMPLE { STRING_1 = "string1", STRING_2 = "string2" }` over `"string1" | "string2"`. Architecture examples in this document may show raw string values for readability; implementation code must still use the corresponding package enum.
 
 Import boundary rule:
 
@@ -438,6 +444,10 @@ export interface ProxyAcquireInput {
 ```
 
 The adapter does not execute retry/fallback policy. It only acquires a route for one attempt.
+
+`ProxyAcquireInput.requirements` must stay typed as `ProxyRouteRequirements`, not widened to `Record<string, unknown>`. Planning and execution code must preserve structured requirements such as `dns`, `geo`, and `verification` so later verifier/retry logic can reason about them without provider-specific parsing.
+
+`release()` is cleanup, not policy. It receives the classified `ProxyAttemptResult`, should be called when possible for every acquired lease, and must remain best-effort. Release failures must be recorded as gateway events and may later be emitted through logger/telemetry ports, but they must not replace the target response or service error for the actual attempt outcome.
 
 When implementing route contracts in code, represent closed route kinds, hop kinds, protocols, DNS modes, and auth modes with package enums in `src/constants.ts`. Older architecture examples may show string literals for readability; the enum rule in section 3 controls implementation.
 
@@ -896,6 +906,8 @@ Important behavior:
 - If geo.mode is best-effort, mismatch should be recorded but not necessarily rejected.
 - If geo.mode is verified-after-acquire, the core should run exit verification when policy requires strict country matching.
 - If geo.mode is unsupported, geo requirements should skip or reject that provider unless policy says best-effort is acceptable.
+- `ExecutionPlanner` may mark a `ProxyExecutionAttempt` as requiring exit verification through `attempt.verification`, but it must not call `ProxyExitVerifierPort`, DNS, GeoIP, probe endpoints, or provider-specific APIs.
+- Lease verification belongs after provider `acquire()` and before target transport execution. It uses `ProxyExecutionAttempt.verification` plus `ProxyExecutionAttempt.requirements.geo` as the core trigger and expected-geo source.
 ```
 
 ## 13. Request facts, enrichment, and custom policy pipelines
@@ -1274,7 +1286,8 @@ export enum RETRY_CONDITION {
 }
 
 export enum PROXY_ATTEMPT_RESULT_OUTCOME {
-  // Legacy compatibility only. New classification code must use more specific outcomes.
+  // Use specific outcomes when possible. Use GATEWAY_ERROR for gateway-owned failures
+  // that do not fit a more precise timeout/abort/policy/body/transport outcome.
   GATEWAY_ERROR = "gateway-error",
   SUCCESS = "success",
   TARGET_HTTP_ERROR = "target-http-error",
@@ -1294,9 +1307,13 @@ export enum PROXY_ATTEMPT_RESULT_OUTCOME {
 }
 ```
 
-`GATEWAY_ERROR` is a temporary compatibility value for older direct-execution paths. New classifier and retry code must use specific outcomes such as `TARGET_NETWORK_ERROR`, `GATEWAY_TIMEOUT`, `ABORTED`, or `REJECTED_BY_POLICY`.
+`GATEWAY_ERROR` is reserved for gateway-owned failures that do not fit a more precise outcome, such as response buffering failure. New classifier and retry code must still prefer specific outcomes such as `TARGET_NETWORK_ERROR`, `GATEWAY_TIMEOUT`, `ABORTED`, `REQUEST_BODY_NOT_REPLAYABLE`, or `REJECTED_BY_POLICY` whenever those apply.
+
+`ResultClassifier` is the single owner of mapping observed target/proxy/gateway failures into `PROXY_ATTEMPT_RESULT_OUTCOME`, service error codes, retryability flags, retry-condition hints, and redacted diagnostics. Executors and use-cases must not duplicate raw-error-to-service-code mapping except for a defensive fallback when a classified failure has no service error.
 
 `RetryDecider` consumes classified `PROXY_ATTEMPT_RESULT_OUTCOME` values and retry policy; it must not classify raw errors. `ResultClassifier` produces attempt outcomes and retry-condition hints; it must not decide whether to run another attempt.
+
+Same-attempt retry and fallback traversal must be driven by `RetryDecider`. `AttemptExecutor` may manage retry-loop state, acquired leases, attempt indexes, and fallback traversal, but it must not add ad hoc retry/fallback rules outside `RetryDecider`.
 
 Unsafe method retry policy:
 
@@ -1334,11 +1351,13 @@ Rules:
 - If the client aborts, all attempts stop and no fallback starts.
 - If total timeout expires, all attempts stop and no fallback starts.
 - If one attempt timeout expires, the gateway may continue to the next attempt if policy allows.
+- The total gateway timeout scope is owned by the request flow above attempt execution.
+- `AttemptExecutor` creates per-attempt timeout scopes from the total/caller parent signal.
 - Provider adapter acquire() receives the attempt signal.
 - Lease verification receives the attempt signal.
 - Target transport receives the attempt signal.
 - release() should be called when possible, even after failed attempts.
-- release() is best-effort. A release failure must be recorded through logger/telemetry when available, but it must not mask the response or service error that represents the actual attempt outcome.
+- release() is best-effort. A release failure must first be represented as a `GatewayEvent`; when logger/telemetry ports are available that event may be emitted through them, but it must not mask the response or service error that represents the actual attempt outcome.
 ```
 
 ## 20. Body buffering and ReadableStream control
