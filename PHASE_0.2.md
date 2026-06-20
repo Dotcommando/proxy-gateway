@@ -334,7 +334,7 @@ Next three steps reassessment:
 - Step 11 depends on Step 10's route contract shape and should reuse the existing direct-plan session read/write helpers.
 - Step 12 should be deleted or sharply narrowed if Step 10 decides not to add route-level requirements.
 
-## 10. Route Config Public API Hardening
+## 10. Route Config Public API Hardening - Completed
 
 Purpose:
 - Finish and harden the public route/default-route config contracts already introduced in Step 1, without runtime wiring yet.
@@ -354,6 +354,18 @@ Verify:
 - Public type tests pass.
 - Existing routing tests pass.
 
+Progress:
+- Added public type coverage proving `ProxyGatewayOptions.routes` and `defaultRoute` accept route/default configs bound to `ProxyPlanConfig` and `ProxyRouteRequirements`.
+- Added contract coverage that route matches use the existing `ProxyRouteMatch`/matcher enum shapes from domain routing.
+- Added `requirements?: TRequirements` to route/default-route config contracts as an opaque generic preserved by domain route selection.
+- Bound `ProxyGatewayOptions` route/default-route requirements to the outbound `ProxyRouteRequirements` public contract without making `src/domain/routing` depend on outbound ports.
+- Checked nested AGENTS files and updated `src/domain/AGENTS.md` for the durable opaque-requirements routing rule.
+
+Next three steps reassessment:
+- Step 11 is ready. Route selection wiring should use the selected route/default plan and preserve selected route/default requirements for Step 12, but it should not duplicate requirements merge logic.
+- Step 12 is confirmed and should implement the merge of route/default requirements with per-attempt requirements. The merge rule must be explicit, especially for array fields such as provider include/exclude ids, protocols, and network types.
+- Step 13 remains ready after route wiring and requirements merge. Its tests should verify `providerSelection` is no longer the normal documented path once route/default route config can select providers through plan/requirements.
+
 ## 11. Route Selection Wiring
 
 Purpose:
@@ -372,6 +384,7 @@ Red:
 Green:
 - Wire `selectRoute()` into `HandleProxyFetchRequestUseCase`.
 - Convert selected route/default route plan into planner input.
+- Preserve selected route/default requirements for the Step 12 merge path.
 - Reuse the existing direct `options.plan` planning/session path where possible instead of creating a second planner flow.
 
 Verify:
@@ -384,7 +397,7 @@ Purpose:
 - Combine route-level requirements and attempt-level requirements predictably.
 
 Precondition:
-- Step 10 must either add `requirements?: ProxyRouteRequirements` to route/default-route configs or remove this step as unnecessary.
+- Step 10 added `requirements?: ProxyRouteRequirements` to route/default-route configs through the app-level public options binding.
 
 Red:
 - Add tests for merging:
@@ -400,7 +413,7 @@ Red:
 Green:
 - Implement a narrow requirements merge collaborator in app/planning or domain if pure.
 - Document the merge rule in tests and README.
-- If Step 10 removes route-level requirements, delete this step and any dependent route-requirements examples instead of inventing an unused merge layer.
+- Merge selected route/default requirements into each selected-plan attempt before planner capability validation.
 
 Verify:
 - Requirements merge tests pass.

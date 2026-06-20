@@ -6,6 +6,7 @@ import {
   PROXY_IDENTITY_ISOLATION_SCOPE,
   PROXY_IDENTITY_ROTATION,
   PROXY_PLAN_KIND,
+  PROXY_PROTOCOL,
   PROXY_ROUTE_KIND,
   type ProxyDefaultRouteConfig,
   type ProxyGatewayOptions,
@@ -16,10 +17,12 @@ import {
   type ProxyPlanConfig,
   type ProxyProviderInstance,
   type ProxyRouteConfig,
+  type ProxyRouteMatch,
   type ProxyRouteRequirements,
   type ProxySessionRecord,
   type ProxySessionStorePort,
   RESPONSE_CODE,
+  STRING_MATCHER_KIND,
   TARGET_ACCESS_REJECTION_REASON,
   TARGET_ACCESS_RESULT_KIND,
   type TargetFinalUrlCheckInput,
@@ -81,18 +84,24 @@ describe('public contract types', () => {
       attempts: [{ provider: 'provider-a' }],
       kind: PROXY_PLAN_KIND.FALLBACK,
     };
-    const routes: Array<ProxyRouteConfig<ProxyPlanConfig>> = [
+    const routes: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>> = [
       {
         id: 'api-route',
         match: {
           host: 'api.example.com',
         },
         plan,
+        requirements: {
+          protocols: [PROXY_PROTOCOL.HTTP],
+        },
       },
     ];
-    const defaultRoute: ProxyDefaultRouteConfig<ProxyPlanConfig> = {
+    const defaultRoute: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements> = {
       id: 'default',
       plan,
+      requirements: {
+        protocols: [PROXY_PROTOCOL.HTTP],
+      },
     };
     const pipelineStep: ProxyPipelineStep = {
       execute: async () => ({}),
@@ -123,6 +132,76 @@ describe('public contract types', () => {
     expect(options.pipelines).toBe(pipelines);
     expect(options.stepRegistry).toBe(stepRegistry);
     expect(options.sessionStore).toBe(sessionStore);
+  });
+
+  it('binds route configs to matcher, plan, and requirements contracts', () => {
+    const routeMatch: ProxyRouteMatch = {
+      host: {
+        type: STRING_MATCHER_KIND.SUFFIX,
+        value: '.example.com',
+      },
+      method: ['GET', 'POST'],
+      path: {
+        type: STRING_MATCHER_KIND.GLOB,
+        value: '/api/**',
+      },
+      url: {
+        type: STRING_MATCHER_KIND.PREFIX,
+        value: 'https://',
+      },
+    };
+    const plan: ProxyPlanConfig = {
+      attempts: [
+        {
+          provider: 'provider-a',
+          requirements: {
+            identity: {
+              rotation: PROXY_IDENTITY_ROTATION.STICKY,
+              stickySessionId: 'route-session',
+            },
+          },
+        },
+      ],
+      kind: PROXY_PLAN_KIND.FALLBACK,
+    };
+    const requirements: ProxyRouteRequirements = {
+      identity: {
+        rotation: PROXY_IDENTITY_ROTATION.STICKY,
+        stickySessionTtlMs: 60_000,
+      },
+      protocols: [PROXY_PROTOCOL.HTTP],
+      providerInstanceIds: ['provider-a'],
+    };
+    const route: ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements> = {
+      exclude: {
+        path: {
+          type: STRING_MATCHER_KIND.PREFIX,
+          value: '/api/internal',
+        },
+      },
+      id: 'api-route',
+      match: routeMatch,
+      plan,
+      priority: 10,
+      requirements,
+    };
+    const defaultRoute: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements> = {
+      id: 'default-route',
+      plan,
+      requirements,
+    };
+    const options: ProxyGatewayOptions = {
+      defaultRoute,
+      providers: [],
+      routes: [route],
+    };
+
+    expect(route.match).toBe(routeMatch);
+    expect(route.plan).toBe(plan);
+    expect(route.requirements).toBe(requirements);
+    expect(defaultRoute.requirements).toBe(requirements);
+    expect(options.routes).toEqual([route]);
+    expect(options.defaultRoute).toBe(defaultRoute);
   });
 
   it('exposes structured identity requirements on route requirements', () => {

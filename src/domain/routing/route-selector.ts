@@ -9,17 +9,19 @@ export interface ProxyRouteMatch {
   url?: StringMatcher;
 }
 
-export interface ProxyRouteConfig<TPlan = unknown> {
+export interface ProxyRouteConfig<TPlan = unknown, TRequirements = unknown> {
   exclude?: ProxyRouteMatch;
   id: string;
   match: ProxyRouteMatch;
   plan: TPlan;
   priority?: number;
+  requirements?: TRequirements;
 }
 
-export interface ProxyDefaultRouteConfig<TPlan = unknown> {
+export interface ProxyDefaultRouteConfig<TPlan = unknown, TRequirements = unknown> {
   id: string;
   plan: TPlan;
+  requirements?: TRequirements;
 }
 
 export interface RouteSelectionTarget {
@@ -27,20 +29,20 @@ export interface RouteSelectionTarget {
   url: string;
 }
 
-export interface RouteSelectionInput<TPlan = unknown> {
-  defaultRoute?: ProxyDefaultRouteConfig<TPlan>;
-  routes: Array<ProxyRouteConfig<TPlan>>;
+export interface RouteSelectionInput<TPlan = unknown, TRequirements = unknown> {
+  defaultRoute?: ProxyDefaultRouteConfig<TPlan, TRequirements>;
+  routes: Array<ProxyRouteConfig<TPlan, TRequirements>>;
   target: RouteSelectionTarget;
 }
 
-export type RouteSelectionResult<TPlan = unknown> =
+export type RouteSelectionResult<TPlan = unknown, TRequirements = unknown> =
   | {
       kind: ROUTE_SELECTION_RESULT_KIND.MATCHED;
-      route: ProxyRouteConfig<TPlan>;
+      route: ProxyRouteConfig<TPlan, TRequirements>;
     }
   | {
       kind: ROUTE_SELECTION_RESULT_KIND.DEFAULT;
-      route: ProxyDefaultRouteConfig<TPlan>;
+      route: ProxyDefaultRouteConfig<TPlan, TRequirements>;
     }
   | {
       code: RESPONSE_CODE.NO_ROUTE_MATCHED;
@@ -48,7 +50,9 @@ export type RouteSelectionResult<TPlan = unknown> =
       message: string;
     };
 
-export function selectRoute<TPlan>(input: RouteSelectionInput<TPlan>): RouteSelectionResult<TPlan> {
+export function selectRoute<TPlan, TRequirements>(
+  input: RouteSelectionInput<TPlan, TRequirements>,
+): RouteSelectionResult<TPlan, TRequirements> {
   const sortedRoutes = input.routes
     .map((route, index) => ({
       index,

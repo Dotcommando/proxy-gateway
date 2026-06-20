@@ -6,6 +6,7 @@ import type {
   ProxyPipelineConfig,
   ProxyPipelineStepRegistryPort,
   ProxyProviderInstance,
+  ProxyRouteRequirements,
   ProxySessionStorePort,
   RandomPort,
   TargetTransportPort,
@@ -24,7 +25,7 @@ export interface BodyBufferingPolicy {
 
 export interface ProxyGatewayOptions {
   bodyBuffering?: BodyBufferingPolicy;
-  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig>;
+  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>;
   exitVerifier?: ProxyExitVerifierPort;
   plan?: ProxyPlanConfig;
   pipelines?: ProxyPipelineConfig[];
@@ -33,7 +34,7 @@ export interface ProxyGatewayOptions {
   random?: RandomPort;
   redaction?: RedactionPolicy;
   retrySafety?: RetrySafetyPolicy;
-  routes?: Array<ProxyRouteConfig<ProxyPlanConfig>>;
+  routes?: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>>;
   sessionStore?: ProxySessionStorePort;
   stepRegistry?: ProxyPipelineStepRegistryPort;
   targetAccess?: TargetAccessPolicy;
