@@ -281,10 +281,12 @@ Red:
 - Add tests proving failed attempts do not overwrite an existing successful sticky session unless policy explicitly says so.
 - Add tests proving fallback success updates the sticky provider to the fallback provider.
 - Add tests proving `stickySessionTtlMs` controls record expiration.
+- Add tests proving session write failures are best-effort and do not mask a successful target response.
 
 Green:
 - Add session write coordination after `AttemptExecutor` completes successfully.
-- Ensure session writes are best-effort or classified according to a stable policy decided in this step.
+- Treat session writes as best-effort for v0.2: write failures should become safe gateway events/diagnostics later, but must not replace the target response.
+- Ensure `AttemptExecutor` or the use-case exposes the successful provider instance id needed to write the session record without parsing provider-specific lease metadata.
 - Keep target response building independent of session-store serialization.
 
 Verify:
@@ -300,6 +302,7 @@ Red:
 - Add tests proving `ProxyAcquireInput.requirements.identity` reaches provider `acquire()`.
 - Cover sticky, fixed, per-request, isolation key, isolation scope, and request-new-identity fields.
 - Add tests proving session-derived provider pinning does not erase identity requirements.
+- Add tests proving fallback attempts keep their own identity requirements after a session-pinned first attempt.
 
 Green:
 - Preserve `requirements.identity` through route selection, pipeline merging, planning, and attempt execution.
@@ -309,19 +312,21 @@ Verify:
 - Provider acquire handoff tests pass.
 - Session read/write tests still pass.
 
-## 10. Route Config Public API
+## 10. Route Config Public API Hardening
 
 Purpose:
-- Add public route/default-route config to `createProxyGateway()` without runtime wiring yet.
+- Finish and harden the public route/default-route config contracts already introduced in Step 1, without runtime wiring yet.
 
 Red:
-- Add type tests for `routes?: ProxyRouteConfig[]` and `defaultRoute?: ProxyDefaultRouteConfig`.
+- Add type tests for the existing `routes?: ProxyRouteConfig[]` and `defaultRoute?: ProxyDefaultRouteConfig` options so Step 1 coverage is not only baseline.
 - Add tests that route configs use existing matcher contracts from `src/domain/routing`.
 - Add tests that plan configs attached to routes reuse `ProxyPlanConfig`.
+- Add tests for route/default-route `requirements?: ProxyRouteRequirements` if route-level defaults are still intended for Step 12.
 
 Green:
-- Add route/default-route options to `ProxyGatewayOptions`.
-- Export route config types from the package root if not already exported.
+- Keep existing route/default-route options on `ProxyGatewayOptions`; refine them only where tests expose gaps.
+- Add route/default-route requirements fields only if Step 12 still needs route-level requirement merging.
+- Keep package-root route config exports aligned with the finalized contracts.
 
 Verify:
 - Public type tests pass.
@@ -340,10 +345,12 @@ Red:
   - default route fallback;
   - `NO_ROUTE_MATCHED` when no route/default exists.
 - Add tests proving route matching sees the normalized target request.
+- Add tests proving target access still runs before route selection side effects.
 
 Green:
 - Wire `selectRoute()` into `HandleProxyFetchRequestUseCase`.
 - Convert selected route/default route plan into planner input.
+- Reuse the existing direct `options.plan` planning/session path where possible instead of creating a second planner flow.
 
 Verify:
 - Route wiring integration tests pass.
@@ -353,6 +360,9 @@ Verify:
 
 Purpose:
 - Combine route-level requirements and attempt-level requirements predictably.
+
+Precondition:
+- Step 10 must either add `requirements?: ProxyRouteRequirements` to route/default-route configs or remove this step as unnecessary.
 
 Red:
 - Add tests for merging:
@@ -368,6 +378,7 @@ Red:
 Green:
 - Implement a narrow requirements merge collaborator in app/planning or domain if pure.
 - Document the merge rule in tests and README.
+- If Step 10 removes route-level requirements, delete this step and any dependent route-requirements examples instead of inventing an unused merge layer.
 
 Verify:
 - Requirements merge tests pass.
@@ -485,6 +496,7 @@ Purpose:
 
 Red:
 - Add integration tests for:
+  - direct `options.plan` with session read/write;
   - route plan only;
   - pipeline plan only;
   - route requirements plus pipeline plan;
@@ -496,6 +508,7 @@ Red:
 Green:
 - Implement a single decision flow in the use-case.
 - Avoid duplicate planning logic between route and pipeline paths.
+- Define whether direct `options.plan` bypasses route/pipeline config or is rejected when declarative config is present, then align Step 13 docs/tests with that choice.
 
 Verify:
 - Route/pipeline precedence tests pass.
@@ -526,8 +539,8 @@ Purpose:
 
 Red:
 - Add gateway integration tests:
-  - first request selects provider and writes sticky session;
-  - second request with same flow/identity reuses provider;
+  - first request through route/pipeline config selects provider and writes sticky session;
+  - second request through route/pipeline config with same flow/identity reuses provider;
   - different flow/tenant gets a different session;
   - TTL expiration selects a new provider;
   - requestNewIdentity replaces session;
@@ -535,6 +548,7 @@ Red:
 
 Green:
 - Wire session manager into the final route/pipeline planning flow.
+- Reuse the direct-plan session read/write helpers from Steps 7-8; do not duplicate session logic for declarative routes/pipelines.
 - Keep provider adapters generic and only pass identity requirements.
 
 Verify:
@@ -548,6 +562,7 @@ Purpose:
 
 Red:
 - Add integration tests proving denied initial targets still return before:
+  - session-store reads/writes;
   - route planning side effects;
   - pipeline side effects;
   - provider capability lookup;
@@ -575,6 +590,7 @@ Red:
   - route fallback;
   - pipeline built-in requirements;
   - sticky session reuse;
+  - `createMemoryProxySessionStore()` usage;
   - TypeScript type imports for new public contracts.
 
 Green:
@@ -618,6 +634,7 @@ Purpose:
 Red:
 - Inspect decisions from completed v0.2 steps and compare them with nested `AGENTS.md`.
 - Add missing rules for sessions, route/pipeline flow, built-in steps, and local registry e2e.
+- Treat session rules from Steps 1-8 as already mostly captured; focus this step on gaps from route/pipeline/built-in/e2e work.
 
 Green:
 - Update only relevant nested `AGENTS.md` files.
@@ -649,16 +666,14 @@ Verify:
 - `npm run prepublishOnly`
 - Local registry publish/install e2e passes.
 
-## Suggested PR Order
+## Remaining PR Order
 
-1. Identity/session contracts, key derivation, session store port.
-2. Memory session store and session manager read/write behavior.
-3. Session-aware planning and provider acquire identity handoff.
-4. Route/default-route public config and route selection wiring.
-5. Requirements merge and providerSelection bridge narrowing/removal.
-6. Pipeline options wiring and built-in requirements/provider/plan steps.
-7. Route/pipeline precedence and verification flags.
-8. Full sticky sessions through declarative routes/pipelines.
-9. Security/redaction regression for declarative flow.
-10. Local registry v0.2 consumer e2e.
-11. README, AGENTS, public exports, and release gate.
+1. Session write path and provider acquire identity handoff.
+2. Route/default-route contract hardening and route selection wiring.
+3. Route requirements merge if route-level requirements remain part of the contract.
+4. ProviderSelection bridge narrowing/removal after declarative route config can replace it.
+5. Pipeline options wiring and built-in requirements/provider/plan steps.
+6. Route/pipeline precedence and verification flags.
+7. Full sticky sessions through declarative routes/pipelines plus security/redaction regression.
+8. Local registry v0.2 consumer e2e.
+9. README, AGENTS, public exports, and release gate.
