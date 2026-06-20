@@ -1314,7 +1314,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 24.4 Full Gateway Body/Status Compatibility
+### 24.4 Full Gateway Body/Status Compatibility - Done
 
 Scope:
 - Cover full gateway path for text, JSON base64, multipart binary request, multipart binary response, null-body statuses, and target HTTP error statuses.
@@ -1342,6 +1342,23 @@ Verify:
 - Existing parser, builder, multipart, and gateway plan-flow tests still pass.
 - Redaction/access integration tests still pass because service errors now include diagnostics.
 
+Implemented:
+- Added full gateway integration coverage for JSON text request/response.
+- Added full gateway integration coverage for JSON base64 request body normalization into bytes.
+- Added full gateway integration coverage for multipart binary requests and multipart binary responses.
+- Added full gateway integration coverage for null-body statuses `204`, `205`, and `304`.
+- Added full gateway integration coverage proving target HTTP statuses `403`, `404`, `429`, `500`, and `503` remain successful service envelopes by default.
+- Asserted normalized `GatewayBody` shapes reaching target transport for text, bytes, and null bodies.
+- Did not add a streaming multipart full-path test; lower-level parser coverage already verifies the streaming multipart shape, and adding a true stream request here would require broader test infrastructure than this integration step needs.
+- Confirmed no production code changes were required.
+- Checked nested AGENTS.md files; no new durable rule was needed.
+
+Verified:
+- `npm test -- --runTestsByPath tests/gateway-body-status-compatibility.test.ts`
+- `npm test -- --runTestsByPath tests/gateway-body-status-compatibility.test.ts tests/proxy-fetch-json-envelope.test.ts tests/direct-route-hardening.test.ts tests/gateway-plan-flow.test.ts tests/gateway-access-redaction.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ### 24.5 Redirect/Final URL Guard Contract
 
 Scope:
@@ -1349,20 +1366,24 @@ Scope:
 - Do not implement full redirect-chain orchestration in core v0.1 unless explicitly needed.
 - First inspect current target access and transport port contracts; this may be documentation/contract-only if final URL re-check already has a natural hook.
 - Decide whether the guard belongs in `TargetTransportPort` input, a separate app service, or an app-level helper exposed to transports.
+- Keep compatibility with existing `TargetAccessGuard.checkRedirectUrl()` behavior.
 
 Red:
 - Add tests or type-level contract checks proving guard methods/contract fields are available to transports.
 - Add a failing test for final URL rejection only if there is already a gateway-level point where final URL information is available.
 - Add a test proving initial target access behavior is unchanged after adding the final URL guard contract.
+- Add a test proving a transport can call the final URL guard without importing app internals if a new public/port hook is introduced.
 
 Green:
 - Add minimal port contract shape for redirect/final URL guard if missing.
 - Avoid implementing redirect-chain orchestration in the core.
 - Update nested AGENTS.md if a new target transport guard responsibility is introduced.
+- Prefer exposing a small guard function/service over widening transport execution responsibilities unnecessarily.
 
 Verify:
 - Contract tests pass.
 - Existing target access and direct-route hardening tests still pass.
+- Body/status compatibility tests still pass.
 
 ## 25. Thin Wrapper Contract Suite
 
@@ -1375,12 +1396,14 @@ Red:
 - Add a Node HTTP server factory for the contract suite.
 - Add framework-shaped mock factories for Express, Fastify, and NestJS wrappers if real frameworks are not dev dependencies.
 - If real Express/Fastify/NestJS wrappers are shipped in this package, keep those packages out of runtime dependencies and use them only as devDependencies for tests where possible.
+- Add wrapper contract cases for the body/status fixtures introduced in step 24.4 where raw bytes matter.
 
 Green:
 - Implement `createNodeHttpHandler(gateway)`.
 - Implement dependency-free structural wrappers only where they can be shipped without importing framework packages.
 - Keep the contract suite reusable for future separate framework adapter packages.
 - Preserve raw request bytes and service response bytes across wrapper boundaries.
+- Avoid adding real framework runtime imports to satisfy contract tests.
 
 Verify:
 - Wrapper contract tests pass.
