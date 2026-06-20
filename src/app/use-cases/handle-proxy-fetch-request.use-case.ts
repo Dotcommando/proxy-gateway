@@ -17,6 +17,7 @@ import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
 import { RedactionService } from '../redaction';
+import { RetryDecider } from '../retry';
 import { TargetAccessGuard } from '../security';
 import {
   mapTimeoutObservationToOutcome,
@@ -101,8 +102,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
 
       const attemptExecutor = new AttemptExecutor({
         bodyBufferManager: this.#bodyBufferManager,
+        ...(this.#options.exitVerifier !== undefined && { exitVerifier: this.#options.exitVerifier }),
         providers: this.#options.providers,
         resultClassifier: this.#resultClassifier,
+        retryDecider: new RetryDecider(
+          this.#options.retrySafety === undefined ? {} : { retrySafety: this.#options.retrySafety },
+        ),
         timeoutController: this.#timeoutController,
         transport: this.#options.transport,
       });

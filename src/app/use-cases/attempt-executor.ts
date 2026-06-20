@@ -2,6 +2,8 @@ import {
   ATTEMPT_EXECUTOR_RESULT_KIND,
   GATEWAY_EVENT_TYPE,
   PROXY_ATTEMPT_RESULT_OUTCOME,
+  PROXY_GEO_STRICTNESS,
+  RESPONSE_CODE,
   RETRY_DECISION_KIND,
 } from '../../constants';
 import type {
@@ -12,6 +14,7 @@ import type {
   ProxyAttemptResult,
   ProxyExecutionAttempt,
   ProxyExecutionPlan,
+  ProxyExitVerifierPort,
   ProxyLease,
   ProxyProviderInstance,
   TargetTransportPort,
@@ -27,6 +30,7 @@ import {
 
 export interface AttemptExecutorOptions {
   bodyBufferManager: BodyBufferManager;
+  exitVerifier?: ProxyExitVerifierPort;
   providers: ProxyProviderInstance[];
   resultClassifier: ResultClassifier;
   retryDecider?: RetryDecider;
@@ -60,6 +64,7 @@ export type AttemptExecutorResult =
 
 export class AttemptExecutor {
   readonly #bodyBufferManager: BodyBufferManager;
+  readonly #exitVerifier: ProxyExitVerifierPort | undefined;
   readonly #providers: ProxyProviderInstance[];
   readonly #resultClassifier: ResultClassifier;
   readonly #retryDecider: RetryDecider;
@@ -68,6 +73,7 @@ export class AttemptExecutor {
 
   constructor(options: AttemptExecutorOptions) {
     this.#bodyBufferManager = options.bodyBufferManager;
+    this.#exitVerifier = options.exitVerifier;
     this.#providers = options.providers;
     this.#resultClassifier = options.resultClassifier;
     this.#retryDecider = options.retryDecider ?? new RetryDecider();
@@ -229,6 +235,27 @@ export class AttemptExecutor {
       });
     }
 
+    const verificationResult = await this.#verifyLeaseIfRequired({
+      attempt: input.attempt,
+      attemptSignal: input.attemptSignal,
+      lease,
+      requestId: input.requestId,
+      target: input.target,
+      timeoutScope: input.timeoutScope,
+    });
+
+    if ('attemptResult' in verificationResult) {
+      const events = await releaseBestEffort(input.provider, lease, verificationResult.attemptResult);
+
+      return this.#failed({
+        attempt: input.attempt,
+        classified: verificationResult,
+        events,
+      });
+    }
+
+    lease = verificationResult;
+
     try {
       const targetResponse = await this.#timeoutController.race(
         this.#transport.execute({
@@ -274,6 +301,13 @@ export class AttemptExecutor {
         target,
       });
     }
+    if (readErrorCode(error) === RESPONSE_CODE.PROXY_AUTH_ERROR) {
+      return this.#resultClassifier.classifyFailure({
+        message: readErrorMessage(error) ?? 'Proxy authentication failed.',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.PROXY_AUTH_ERROR,
+        target,
+      });
+    }
 
     return this.#resultClassifier.classifyFailure({
       message: 'Proxy connection failed.',
@@ -304,6 +338,14 @@ export class AttemptExecutor {
         target,
       });
     }
+    if (readErrorCode(error) === RESPONSE_CODE.RESPONSE_STREAM_ALREADY_STARTED) {
+      return this.#resultClassifier.classifyFailure({
+        message: readErrorMessage(error) ?? 'Response stream already started.',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.RESPONSE_STREAM_ALREADY_STARTED,
+        route: lease.route,
+        target,
+      });
+    }
 
     return this.#resultClassifier.classifyFailure({
       message: 'Target transport execution failed.',
@@ -330,6 +372,100 @@ export class AttemptExecutor {
 
     return result;
   }
+
+  async #verifyLeaseIfRequired(input: {
+    attempt: ProxyExecutionAttempt;
+    attemptSignal: AbortSignal;
+    lease: ProxyLease;
+    requestId: string;
+    target: GatewayTargetRequest;
+    timeoutScope: Parameters<TimeoutController['race']>[1];
+  }): Promise<ProxyLease | ClassifiedAttempt> {
+    if (input.attempt.verification?.verifyExit !== true) {
+      return input.lease;
+    }
+    if (this.#exitVerifier === undefined) {
+      return this.#resultClassifier.classifyFailure({
+        message: 'Proxy exit verification failed.',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.EXIT_VERIFICATION_FAILED,
+        route: input.lease.route,
+        target: input.target,
+      });
+    }
+
+    try {
+      const verification = await this.#timeoutController.race(
+        this.#exitVerifier.verify({
+          lease: input.lease,
+          requestId: input.requestId,
+          route: input.lease.route,
+          signal: input.attemptSignal,
+          ...(input.attempt.requirements?.geo !== undefined && {
+            expected: input.attempt.requirements.geo,
+          }),
+        }),
+        input.timeoutScope,
+      );
+
+      if (!verification.matchesRequirements && shouldRejectGeoMismatch(input.attempt)) {
+        return this.#resultClassifier.classifyFailure({
+          message: 'Proxy exit did not match geo requirements.',
+          outcome: PROXY_ATTEMPT_RESULT_OUTCOME.PROXY_GEO_MISMATCH,
+          route: input.lease.route,
+          target: input.target,
+        });
+      }
+
+      return {
+        ...input.lease,
+        verification,
+      };
+    } catch (error) {
+      const timeoutObservation = readTimeoutObservation(error);
+
+      if (timeoutObservation !== undefined) {
+        return this.#resultClassifier.classifyFailure({
+          outcome: mapTimeoutObservationToOutcome(timeoutObservation),
+          route: input.lease.route,
+          target: input.target,
+        });
+      }
+
+      return this.#resultClassifier.classifyFailure({
+        message: 'Proxy exit verification failed.',
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.EXIT_VERIFICATION_FAILED,
+        route: input.lease.route,
+        target: input.target,
+      });
+    }
+  }
+}
+
+function shouldRejectGeoMismatch(attempt: ProxyExecutionAttempt): boolean {
+  return (
+    attempt.verification?.rejectOnGeoMismatch === true
+    || attempt.requirements?.geo?.strictness === PROXY_GEO_STRICTNESS.REQUIRED
+  );
+}
+
+function readErrorCode(error: unknown): RESPONSE_CODE | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+
+  return isResponseCode(error.code) ? error.code : undefined;
+}
+
+function readErrorMessage(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('message' in error)) {
+    return undefined;
+  }
+
+  return typeof error.message === 'string' ? error.message : undefined;
+}
+
+function isResponseCode(value: unknown): value is RESPONSE_CODE {
+  return Object.values(RESPONSE_CODE).some((code) => code === value);
 }
 
 function withEvents(result: AttemptExecutorResult, events: GatewayEvent[]): AttemptExecutorResult {

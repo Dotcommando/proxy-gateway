@@ -53,6 +53,10 @@ Lease verification runs after provider `acquire()` and before target transport e
 
 `ProxyExitVerifierPort` receives request id, lease, route, expected geo requirements, and the active attempt `AbortSignal`.
 
-Target transport must not execute after verification rejection.
+If `verification.verifyExit` is true but no verifier is configured, classify the attempt as `EXIT_VERIFICATION_FAILED`.
+
+If verification returns a mismatch and the attempt requires rejection, classify the attempt as `PROXY_GEO_MISMATCH`. Target transport must not execute after verification rejection.
+
+Stable thrown service/error codes at the executor boundary may be mapped to classified outcomes before retry decisions. Known examples include `PROXY_AUTH_ERROR` and `RESPONSE_STREAM_ALREADY_STARTED`; all final outcome/code/retryability mapping still goes through `ResultClassifier`.
 
 Parser, planner, envelope building, framework wrappers, real verifier implementations, DNS, GeoIP, and target probing stay outside retry/fallback/verification execution.

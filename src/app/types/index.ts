@@ -1,6 +1,11 @@
 import type { PROXY_NETWORK_TYPE } from '../../constants';
 import type { StringMatcher } from '../../domain';
-import type { ProxyProviderInstance, RandomPort, TargetTransportPort } from '../../ports/outbound';
+import type {
+  ProxyExitVerifierPort,
+  ProxyProviderInstance,
+  RandomPort,
+  TargetTransportPort,
+} from '../../ports/outbound';
 import type { RedactionPolicy } from '../redaction';
 
 export interface BodyBufferingPolicy {
@@ -14,6 +19,7 @@ export interface BodyBufferingPolicy {
 
 export interface ProxyGatewayOptions {
   bodyBuffering?: BodyBufferingPolicy;
+  exitVerifier?: ProxyExitVerifierPort;
   providerSelection?: ProviderSelectionConfig;
   providers: ProxyProviderInstance[];
   random?: RandomPort;

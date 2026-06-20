@@ -1021,7 +1021,7 @@ Verify:
 - Attempt executor tests pass.
 - Existing direct execution hardening, timeout, retry, classifier, planner, target access, and redaction tests still pass.
 
-## 23. Attempt Executor Retry, Fallback, and Verification
+## 23. Attempt Executor Retry, Fallback, and Verification - Done
 
 Detailed scope:
 - Extend the `AttemptExecutor` core from step 22 with retry/fallback orchestration and lease-based exit verification.
@@ -1104,7 +1104,7 @@ Verify:
 - Attempt executor retry/fallback tests pass.
 - Existing attempt executor core, retry decider, timeout, classifier, and direct-route hardening tests still pass.
 
-### 23.2 Lease-Based Exit Verification
+### 23.2 Lease-Based Exit Verification - Done
 
 Scope:
 - Add mock-verifier coordination through `ProxyExitVerifierPort`.
@@ -1112,6 +1112,17 @@ Scope:
 - Use `attempt.requirements.geo` as expected geo requirements.
 - Use the active attempt `AbortSignal`.
 - Do not add real HTTP probe, DNS, GeoIP, Tor, or provider-specific integrations.
+
+Implemented:
+- Added optional `ProxyExitVerifierPort` coordination to `AttemptExecutor`.
+- Added `ProxyGatewayOptions.exitVerifier` and passed it through the gateway use-case.
+- Called verifier after provider `acquire()` and before target transport execution when `attempt.verification.verifyExit` is true.
+- Passed request id, lease, route, expected geo requirements, and the active attempt signal to the verifier.
+- Classified verifier failure as `EXIT_VERIFICATION_FAILED`.
+- Classified rejected geo mismatch as `PROXY_GEO_MISMATCH`.
+- Ensured target transport is not called after verification rejection.
+- Ensured release runs for verification mismatch and verification failure.
+- Kept real verifier/probe/DNS/GeoIP integrations outside the core.
 
 Red:
 - Add tests that verification receives request id, lease, route, expected geo requirements, and active attempt signal.
@@ -1130,12 +1141,20 @@ Verify:
 - Mock exit verification tests pass.
 - Existing retry/fallback tests still pass.
 
-### 23.3 Verification Retry/Fallback Policy Integration
+### 23.3 Verification Retry/Fallback Policy Integration - Done
 
 Scope:
 - Let `RetryDecider` control retry/fallback after `PROXY_GEO_MISMATCH` and `EXIT_VERIFICATION_FAILED`.
 - Ensure proxy auth errors skip same-provider retry and may fallback to another provider when policy allows it.
 - Ensure response-stream-already-started prevents retry/fallback.
+
+Implemented:
+- Routed `PROXY_GEO_MISMATCH` and `EXIT_VERIFICATION_FAILED` through the existing retry/fallback loop.
+- Passed `retrySafety` from `ProxyGatewayOptions` into the executor-owned `RetryDecider`.
+- Recognized stable thrown `PROXY_AUTH_ERROR` and `RESPONSE_STREAM_ALREADY_STARTED` service codes at the executor boundary and mapped them through `ResultClassifier`.
+- Verified proxy auth errors skip same-provider retry and can fallback to another provider when policy allows.
+- Verified `RESPONSE_STREAM_ALREADY_STARTED` prevents fallback.
+- Verified verification-sensitive diagnostics remain redacted.
 
 Red:
 - Add tests that strict geo mismatch retries only when `RETRY_CONDITION.PROXY_GEO_MISMATCH` is configured.
@@ -1163,6 +1182,7 @@ Red:
 
 Green:
 - Wire parser, normalizer, access guard, route selection/pipeline/planner, attempt executor, retry decider, classifier, redaction, and builder through `HandleProxyFetchRequestUseCase` and extracted app collaborators.
+- Cover the already-wired `ProxyGatewayOptions.exitVerifier` and `retrySafety` paths through full gateway tests rather than retesting executor internals.
 - Remove temporary `NOT_IMPLEMENTED` paths for covered v0.1 behavior.
 - Remove or narrow the temporary `providerSelection.providerInstanceId` hook once planner-owned direct-route defaults cover the same behavior.
 - Ensure redirect-following responsibility is explicit in the target transport contract:

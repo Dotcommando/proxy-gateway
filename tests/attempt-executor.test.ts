@@ -11,10 +11,12 @@ import {
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
   PROXY_PROVIDER_GEO_MODE,
+  PROXY_ROUTE_AUTH_MODE,
   PROXY_ROUTE_KIND,
   type ProxyAcquireInput,
   type ProxyAttemptResult,
   type ProxyExecutionPlan,
+  type ProxyExitVerifierPort,
   type ProxyLease,
   type ProxyProviderInstance,
   type ProxyRoute,
@@ -74,6 +76,9 @@ describe('AttemptExecutor', () => {
       },
     };
     const executor = createExecutor({
+      exitVerifier: {
+        verify: async () => exitVerification({ country: 'DE', matchesRequirements: true }),
+      },
       providers: [provider],
       transport,
     });
@@ -748,16 +753,380 @@ describe('AttemptExecutor', () => {
       PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
     ]);
   });
+
+  it('verifies a lease after acquire and before target transport execution', async () => {
+    const operations: string[] = [];
+    let acquireSignal: AbortSignal | undefined;
+    let verifySignal: AbortSignal | undefined;
+    let transportSignal: AbortSignal | undefined;
+    const expectedGeo = {
+      country: 'DE',
+      strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+    };
+    const executor = createExecutor({
+      exitVerifier: {
+        verify: async (input) => {
+          operations.push('verify');
+          verifySignal = input.signal;
+          expect(input.requestId).toBe('request-1');
+          expect(input.lease.id).toBe('lease-1');
+          expect(input.route).toEqual({ kind: PROXY_ROUTE_KIND.DIRECT });
+          expect(input.expected).toEqual(expectedGeo);
+
+          return exitVerification({ country: 'DE', matchesRequirements: true });
+        },
+      },
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            operations.push('acquire');
+            acquireSignal = input.signal;
+
+            return directLease();
+          },
+        }),
+      ],
+      transport: {
+        execute: async (input) => {
+          operations.push('transport');
+          transportSignal = input.signal;
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          requirements: {
+            geo: expectedGeo,
+          },
+          verification: {
+            rejectOnGeoMismatch: true,
+            verifyExit: true,
+          },
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(operations).toEqual(['acquire', 'verify', 'transport']);
+    expect(verifySignal).toBe(acquireSignal);
+    expect(transportSignal).toBe(acquireSignal);
+  });
+
+  it('rejects geo mismatch before target transport and releases the lease', async () => {
+    const releasedResults: ProxyAttemptResult[] = [];
+    let transportCalled = false;
+    const executor = createExecutor({
+      exitVerifier: {
+        verify: async () => exitVerification({ country: 'US', matchesRequirements: false }),
+      },
+      providers: [
+        directProvider({
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          transportCalled = true;
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          requirements: {
+            geo: {
+              country: 'DE',
+              strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+            },
+          },
+          verification: {
+            rejectOnGeoMismatch: true,
+            verifyExit: true,
+          },
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.FAILED);
+    expect(transportCalled).toBe(false);
+    expect(releasedResults).toEqual([
+      {
+        error: {
+          code: RESPONSE_CODE.PROXY_GEO_MISMATCH,
+          message: 'Proxy exit did not match geo requirements.',
+        },
+        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.PROXY_GEO_MISMATCH,
+      },
+    ]);
+  });
+
+  it('can fallback after geo mismatch when retry policy allows it', async () => {
+    const acquiredProviderIds: string[] = [];
+    const releasedResults: ProxyAttemptResult[] = [];
+    const executor = createExecutor({
+      exitVerifier: {
+        verify: async () => exitVerification({ country: 'US', matchesRequirements: false }),
+      },
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease();
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+      ],
+      transport: okTransport(),
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          requirements: {
+            geo: {
+              country: 'DE',
+              strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+            },
+          },
+          retryOn: [RETRY_CONDITION.PROXY_GEO_MISMATCH],
+          verification: {
+            rejectOnGeoMismatch: true,
+            verifyExit: true,
+          },
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-b']);
+    expect(releasedResults.map((releasedResult) => releasedResult.outcome)).toEqual([
+      PROXY_ATTEMPT_RESULT_OUTCOME.PROXY_GEO_MISMATCH,
+      PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
+    ]);
+  });
+
+  it('can fallback after verifier failure when retry policy allows it', async () => {
+    const acquiredProviderIds: string[] = [];
+    const executor = createExecutor({
+      exitVerifier: {
+        verify: async () => {
+          throw new Error('verifier unavailable');
+        },
+      },
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease();
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+        }),
+      ],
+      transport: okTransport(),
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.EXIT_VERIFICATION_FAILED],
+          verification: {
+            verifyExit: true,
+          },
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-b']);
+  });
+
+  it('skips same-provider retry after proxy auth error and falls back to another provider', async () => {
+    const acquiredProviderIds: string[] = [];
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+            throw {
+              code: RESPONSE_CODE.PROXY_AUTH_ERROR,
+              message: 'bad proxy credentials',
+            };
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+        }),
+      ],
+      transport: okTransport(),
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          maxAttempts: 2,
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.PROXY_AUTH_ERROR],
+        },
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.PROXY_AUTH_ERROR],
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-b']);
+  });
+
+  it('does not fallback after response stream already started', async () => {
+    const acquiredProviderIds: string[] = [];
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease();
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          throw {
+            code: RESPONSE_CODE.RESPONSE_STREAM_ALREADY_STARTED,
+            message: 'response stream already started',
+          };
+        },
+      },
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.FAILED);
+    expect(acquiredProviderIds).toEqual(['provider-a']);
+  });
+
+  it('redacts verification-sensitive diagnostics', async () => {
+    const executor = createExecutor({
+      exitVerifier: {
+        verify: async () => exitVerification({ country: 'US', matchesRequirements: false }),
+      },
+      providers: [
+        directProvider({
+          acquire: async () => directLease({
+            route: authenticatedForwardProxyRoute(),
+          }),
+        }),
+      ],
+      transport: okTransport(),
+    });
+    const result = await executor.execute({
+      ...baseInput(),
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          verification: {
+            rejectOnGeoMismatch: true,
+            verifyExit: true,
+          },
+        },
+      ]),
+    });
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.FAILED);
+    expect(JSON.stringify(result.classified.diagnostics)).not.toContain('secret-password');
+    expect(JSON.stringify(result.classified.diagnostics)).not.toContain('gateway-user');
+  });
 });
 
 function createExecutor(options: {
   bodyBufferManager?: BodyBufferManager;
+  exitVerifier?: ProxyExitVerifierPort;
   providers: ProxyProviderInstance[];
   timeoutController?: TimeoutController;
   transport: TargetTransportPort;
 }): AttemptExecutor {
   return new AttemptExecutor({
     bodyBufferManager: options.bodyBufferManager ?? new BodyBufferManager(),
+    ...(options.exitVerifier !== undefined && { exitVerifier: options.exitVerifier }),
     providers: options.providers,
     resultClassifier: new ResultClassifier(),
     timeoutController: options.timeoutController ?? new TimeoutController(),
@@ -870,6 +1239,30 @@ function forwardProxyRoute(host: string): ProxyRoute {
     kind: PROXY_ROUTE_KIND.FORWARD_PROXY,
     port: 8080,
     protocol: PROXY_PROTOCOL.HTTP,
+  };
+}
+
+function authenticatedForwardProxyRoute(): ProxyRoute {
+  return {
+    auth: {
+      mode: PROXY_ROUTE_AUTH_MODE.USERNAME_PASSWORD,
+      password: 'secret-password',
+      username: 'gateway-user',
+    },
+    host: 'proxy.example',
+    kind: PROXY_ROUTE_KIND.FORWARD_PROXY,
+    port: 8080,
+    protocol: PROXY_PROTOCOL.HTTP,
+  };
+}
+
+function exitVerification(options: { country: string; matchesRequirements: boolean }) {
+  return {
+    checkedAt: new Date('2026-01-01T00:00:00.000Z'),
+    country: options.country,
+    ip: '203.0.113.10',
+    matchesRequirements: options.matchesRequirements,
+    source: 'test-verifier',
   };
 }
 
