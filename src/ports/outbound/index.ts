@@ -366,7 +366,7 @@ export interface ProxyAcquireInput {
   providerInstanceId: string;
   attempt: ProxyAttemptContext;
   target: GatewayTargetRequest;
-  requirements: Record<string, unknown>;
+  requirements: ProxyRouteRequirements;
   context: GatewayExecutionContext;
   signal: AbortSignal;
 }

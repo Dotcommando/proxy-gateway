@@ -118,6 +118,15 @@ const FAILURE_MAPPINGS = new Map<PROXY_ATTEMPT_RESULT_OUTCOME, FailureMapping>([
     },
   ],
   [
+    PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_ERROR,
+    {
+      code: RESPONSE_CODE.GATEWAY_ERROR,
+      defaultMessage: 'Gateway attempt failed.',
+      retryable: false,
+      status: 500,
+    },
+  ],
+  [
     PROXY_ATTEMPT_RESULT_OUTCOME.ABORTED,
     {
       code: RESPONSE_CODE.REQUEST_ABORTED,

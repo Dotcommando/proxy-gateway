@@ -967,11 +967,12 @@ Verify:
 - Geo capability planning tests pass.
 - Existing planner, retry, timeout, target access, and redaction tests still pass.
 
-## 22. Attempt Executor Core
+## 22. Attempt Executor Core - Done
 
 Detailed scope:
 - Extract attempt execution out of `HandleProxyFetchRequestUseCase` before the full direct-route flow becomes too large.
 - Keep attempt orchestration in `src/app/use-cases` or another narrow app-layer module if ownership is clearer, but do not put it in provider adapters or transports.
+- Place the v0.1 `AttemptExecutor` in `src/app/use-cases` because it coordinates app-level ports/collaborators and is not a domain rule.
 - This step implements the single-attempt execution core only. Same-attempt retry, fallback chains, and exit verification coordination move to step 23.
 - `AttemptExecutor` core coordinates already-built collaborators:
   - execution plan;
@@ -981,12 +982,24 @@ Detailed scope:
   - result classifier;
   - redaction helpers for diagnostics.
 - It must not parse proxy-fetch envelopes, perform route matching, load config, perform DNS/GeoIP intelligence, or build service responses.
+- `AttemptExecutor` must return app-level execution results, not `Response` objects. `HandleProxyFetchRequestUseCase` remains responsible for building proxy-fetch service envelopes.
 - Provider `release()` remains best-effort and must not mask the final target response or service error.
-- Use the first planned attempt only in this step. Multiple attempts must be rejected or ignored according to one explicit test rule until step 23 owns retry/fallback.
+- Use the first planned attempt only in this step. Multiple attempts are ignored by explicit contract until step 23 owns retry/fallback.
 - Caller abort, total timeout, and per-attempt timeout must stop the active acquire/transport operation and return classified failure.
 - Route support checks stay before transport execution.
 - Response buffering remains delegated to `BodyBufferManager`.
 - If a planned attempt contains `verification`, step 22 must preserve it in the executor result/input surface but must not call `ProxyExitVerifierPort`; verification execution belongs to step 23.
+- Provider release failures must be recorded on the executor result as gateway events and must not mask the completed/failed attempt result. Wiring those events to logger/telemetry ports can happen when those ports are introduced.
+
+Implemented:
+- Added `AttemptExecutor` in `src/app/use-cases` with single-attempt execution only.
+- Added package enums for executor result kind and provider release failure events.
+- Added `RESPONSE_CODE.GATEWAY_ERROR` and classifier mapping for gateway-owned attempt failures such as response buffering failure.
+- Moved provider acquire, target transport execution, response buffering, timeout classification, unsupported-route classification, and best-effort release out of `HandleProxyFetchRequestUseCase`.
+- Kept `HandleProxyFetchRequestUseCase` responsible for proxy-fetch envelope parsing/building and temporary direct provider selection.
+- Preserved planned attempt fields including `verification` without invoking any verifier.
+- Explicitly ignored additional planned attempts until retry/fallback orchestration is implemented in step 23.
+- Recorded provider release failures as executor `GatewayEvent`s without masking target responses or classified failures.
 
 Red:
 - Add tests that provider `acquire()` receives request id, provider instance id, attempt context, normalized target, requirements, execution context, and active attempt signal.

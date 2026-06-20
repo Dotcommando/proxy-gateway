@@ -1,18 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  ATTEMPT_EXECUTOR_RESULT_KIND,
   GATEWAY_TIMEOUT_MESSAGE,
   PROVIDER_SELECTION_RESULT_KIND,
-  PROXY_ATTEMPT_RESULT_OUTCOME,
+  PROXY_PLAN_KIND,
   RESPONSE_CODE,
   TARGET_ACCESS_RESULT_KIND,
 } from '../../constants';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
-  GatewayTargetRequest,
-  GatewayTargetResponse,
-  ProxyAttemptResult,
-  ProxyLease,
+  ProxyExecutionPlan,
   ProxyProviderInstance,
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
@@ -28,6 +26,7 @@ import {
   type TimeoutScope,
 } from '../timeouts';
 import type { ProxyGatewayOptions } from '../types';
+import { AttemptExecutor } from './attempt-executor';
 
 export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #bodyBufferManager: BodyBufferManager;
@@ -100,52 +99,35 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
 
       await provider.adapter.getCapabilities();
 
-      const attemptTimeoutMs = this.#options.timeouts?.attemptTimeoutMs;
-      const attemptScope = this.#timeoutController.createAttemptScope({
+      const attemptExecutor = new AttemptExecutor({
+        bodyBufferManager: this.#bodyBufferManager,
+        providers: this.#options.providers,
+        resultClassifier: this.#resultClassifier,
+        timeoutController: this.#timeoutController,
+        transport: this.#options.transport,
+      });
+      const executorResult = await attemptExecutor.execute({
+        context: parsed.context,
         parentSignal: totalScope.signal,
-        ...(attemptTimeoutMs === undefined ? {} : { timeoutMs: attemptTimeoutMs }),
+        plan: createSingleAttemptPlan(provider),
+        requestId,
+        target,
+        ...(this.#options.timeouts?.attemptTimeoutMs === undefined
+          ? {}
+          : { attemptTimeoutMs: this.#options.timeouts.attemptTimeoutMs }),
       });
 
-      try {
-        const lease = await this.#timeoutController.race(
-          provider.adapter.acquire({
-            attempt: { index: 0 },
-            context: parsed.context,
-            providerInstanceId: provider.id,
-            requestId,
-            requirements: {},
-            signal: attemptScope.signal,
-            target,
-          }),
-          attemptScope,
-        );
-        const attemptResponse = await executeDirectAttempt({
-          bodyBufferManager: this.#bodyBufferManager,
-          envelopeBuilder: this.#envelopeBuilder,
-          lease,
-          provider,
-          requestId,
-          resultClassifier: this.#resultClassifier,
-          signal: attemptScope.signal,
-          target,
-          timeoutController: this.#timeoutController,
-          timeoutScope: attemptScope,
-          transport: this.#options.transport,
-        });
-
-        if (attemptResponse instanceof Response) {
-          return attemptResponse;
-        }
-
-        await releaseBestEffort(provider, lease, {
-          outcome: PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
-          response: attemptResponse,
-        });
-
-        return this.#envelopeBuilder.buildTargetResponse(attemptResponse, request.headers);
-      } finally {
-        attemptScope.dispose();
+      if (executorResult.kind === ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED) {
+        return this.#envelopeBuilder.buildTargetResponse(executorResult.response, request.headers);
       }
+
+      const serviceError = executorResult.classified.serviceError;
+
+      return this.#envelopeBuilder.buildServiceError(serviceError?.status ?? 500, {
+        code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_ERROR,
+        message: serviceError?.message ?? 'Gateway attempt failed.',
+        retryable: serviceError?.retryable ?? false,
+      });
     } catch (error) {
       const timeoutObservation = readTimeoutObservation(error);
 
@@ -187,92 +169,17 @@ function selectProviderInstance(
     : { kind: PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED };
 }
 
-async function executeDirectAttempt(input: {
-  bodyBufferManager: BodyBufferManager;
-  envelopeBuilder: ProxyFetchEnvelopeBuilder;
-  lease: ProxyLease;
-  provider: ProxyProviderInstance;
-  requestId: string;
-  resultClassifier: ResultClassifier;
-  signal: AbortSignal;
-  target: GatewayTargetRequest;
-  timeoutController: TimeoutController;
-  timeoutScope: TimeoutScope;
-  transport: NonNullable<ProxyGatewayOptions['transport']>;
-}): Promise<GatewayTargetResponse | Response> {
-  if (input.transport.supportsRoute?.(input.lease.route) === false) {
-    const message = `Target transport does not support route kind: ${input.lease.route.kind}.`;
-    const classified = input.resultClassifier.classifyFailure({
-      message,
-      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.UNSUPPORTED_ROUTE,
-      route: input.lease.route,
-      target: input.target,
-    });
-
-    await releaseBestEffort(input.provider, input.lease, classified.attemptResult);
-
-    const serviceError = classified.serviceError;
-
-    return input.envelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
-      code: serviceError?.code ?? RESPONSE_CODE.UNSUPPORTED_ROUTE,
-      message: serviceError?.message ?? message,
-      retryable: serviceError?.retryable ?? false,
-    });
-  }
-
-  try {
-    const targetResponse = await input.timeoutController.race(
-      input.transport.execute({
-        requestId: input.requestId,
-        route: input.lease.route,
-        signal: input.signal,
-        target: input.target,
-      }),
-      input.timeoutScope,
-    );
-
-    return await input.timeoutController.race(
-      input.bodyBufferManager.bufferResponseBody(targetResponse),
-      input.timeoutScope,
-    );
-  } catch (error) {
-    const timeoutObservation = readTimeoutObservation(error);
-
-    if (timeoutObservation !== undefined) {
-      const classified = input.resultClassifier.classifyFailure({
-        outcome: mapTimeoutObservationToOutcome(timeoutObservation),
-        route: input.lease.route,
-        target: input.target,
-      });
-
-      await releaseBestEffort(input.provider, input.lease, classified.attemptResult);
-
-      const serviceError = classified.serviceError;
-
-      return input.envelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
-        code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_TIMEOUT,
-        message: serviceError?.message ?? GATEWAY_TIMEOUT_MESSAGE,
-        retryable: serviceError?.retryable ?? false,
-      });
-    }
-
-    const classified = input.resultClassifier.classifyFailure({
-      message: 'Target transport execution failed.',
-      outcome: PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_NETWORK_ERROR,
-      route: input.lease.route,
-      target: input.target,
-    });
-
-    await releaseBestEffort(input.provider, input.lease, classified.attemptResult);
-
-    const serviceError = classified.serviceError;
-
-    return input.envelopeBuilder.buildServiceError(serviceError?.status ?? 502, {
-      code: serviceError?.code ?? RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
-      message: serviceError?.message ?? 'Target transport execution failed.',
-      retryable: serviceError?.retryable ?? true,
-    });
-  }
+function createSingleAttemptPlan(provider: ProxyProviderInstance): ProxyExecutionPlan {
+  return {
+    attempts: [
+      {
+        providerInstanceId: provider.id,
+        providerKind: provider.adapter.kind,
+        requirements: {},
+      },
+    ],
+    kind: PROXY_PLAN_KIND.FALLBACK,
+  };
 }
 
 function buildTimeoutServiceError(
@@ -290,16 +197,4 @@ function buildTimeoutServiceError(
     message: serviceError?.message ?? GATEWAY_TIMEOUT_MESSAGE,
     retryable: serviceError?.retryable ?? false,
   });
-}
-
-async function releaseBestEffort(
-  provider: ProxyProviderInstance,
-  lease: ProxyLease,
-  result: ProxyAttemptResult,
-): Promise<void> {
-  try {
-    await provider.adapter.release?.(lease, result);
-  } catch {
-    // Release failures must not mask the attempt result returned to the caller.
-  }
 }
