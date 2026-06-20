@@ -7,3 +7,4 @@ export type {
   ProxyPlanConfig,
 } from './execution-planner';
 export { ExecutionPlanner } from './execution-planner';
+export { mergeProxyRouteRequirements, mergeRouteRequirementsIntoPlan } from './requirements-merge';

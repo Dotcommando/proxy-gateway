@@ -4,6 +4,7 @@ import {
   createProxyGateway,
   type GatewayTargetResponse,
   PROXY_PLAN_KIND,
+  PROXY_PROTOCOL,
   PROXY_ROUTE_KIND,
   type ProxyProviderCapabilities,
   type ProxyProviderInstance,
@@ -256,6 +257,68 @@ describe('gateway route selection wiring', () => {
     expect(capabilityCalls).toBe(0);
     expect(transportCalls).toBe(0);
   });
+
+  it('merges matched route requirements into route-selected plan attempts before planning', async () => {
+    const acquiredProviderIds: string[] = [];
+    const gateway = createProxyGateway({
+      providers: [
+        provider('provider-a', acquiredProviderIds, {
+          capabilities: {
+            protocols: [PROXY_PROTOCOL.HTTP],
+          },
+        }),
+        provider('provider-b', acquiredProviderIds, {
+          capabilities: {
+            protocols: [PROXY_PROTOCOL.SOCKS5H],
+          },
+        }),
+      ],
+      routes: [
+        {
+          id: 'socks-api',
+          match: {
+            host: 'api.example.com',
+          },
+          plan: implicitFallbackPlan(),
+          requirements: {
+            protocols: [PROXY_PROTOCOL.SOCKS5H],
+          },
+        },
+      ],
+      transport: okTransport(),
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest({
+      url: 'https://api.example.com/v1/models',
+    }));
+
+    expect((await response.json()).ok).toBe(true);
+    expect(acquiredProviderIds).toEqual(['provider-b']);
+  });
+
+  it('merges default route requirements into default-route plan attempts before planning', async () => {
+    const acquiredProviderIds: string[] = [];
+    const gateway = createProxyGateway({
+      defaultRoute: {
+        id: 'default-socks',
+        plan: implicitFallbackPlan(),
+        requirements: {
+          providerInstanceIds: ['provider-b'],
+        },
+      },
+      providers: [
+        provider('provider-a', acquiredProviderIds),
+        provider('provider-b', acquiredProviderIds),
+      ],
+      routes: [],
+      transport: okTransport(),
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest({
+      url: 'https://unknown.example.com/v1/models',
+    }));
+
+    expect((await response.json()).ok).toBe(true);
+    expect(acquiredProviderIds).toEqual(['provider-b']);
+  });
 });
 
 interface IProxyFetchJsonRequestOptions {
@@ -299,6 +362,13 @@ function fallbackPlan(providerId: string) {
         provider: providerId,
       },
     ],
+    kind: PROXY_PLAN_KIND.FALLBACK,
+  };
+}
+
+function implicitFallbackPlan() {
+  return {
+    attempts: [{}],
     kind: PROXY_PLAN_KIND.FALLBACK,
   };
 }

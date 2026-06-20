@@ -145,8 +145,8 @@ export interface ProxyGateway {
 
 export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
-  routes?: Array<ProxyRouteConfig<ProxyPlanConfig>>;
-  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig>;
+  routes?: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>>;
+  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>;
   pipelines?: ProxyPipelineConfig[];
   stepRegistry?: ProxyPipelineStepRegistryPort;
   transport?: TargetTransportPort;
@@ -416,6 +416,8 @@ Priority decides conflicts:
 - equal priority keeps declaration order;
 - `exclude` is evaluated after a positive match;
 - no match returns a service-level routing error unless a default route is configured.
+
+Route and default-route `requirements` are defaults for every attempt in the selected route plan. Attempt-level requirements override route defaults. Nested `dns`, `geo`, `verification`, and `identity` requirements merge by field; array fields such as `providerInstanceIds`, `excludeProviderInstanceIds`, `protocols`, `networkTypes`, and `identity.isolationScope` are replaced by the attempt-level array instead of concatenated.
 
 ## Body Buffering
 

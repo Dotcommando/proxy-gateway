@@ -18,13 +18,19 @@ import type {
   GatewayTargetRequest,
   ProxyExecutionPlan,
   ProxyProviderInstance,
+  ProxyRouteRequirements,
   ProxySessionRecord,
   TargetFinalUrlGuardPort,
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
-import { ExecutionPlanner, type ProxyPlanAttemptConfig, type ProxyPlanConfig } from '../planning';
+import {
+  ExecutionPlanner,
+  mergeRouteRequirementsIntoPlan,
+  type ProxyPlanAttemptConfig,
+  type ProxyPlanConfig,
+} from '../planning';
 import { RedactionService } from '../redaction';
 import { RetryDecider } from '../retry';
 import { TargetAccessGuard } from '../security';
@@ -177,7 +183,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         });
       }
 
-      return this.#planConfiguredRoute(selectedRoute.route.plan, target, context);
+      return this.#planConfiguredRoute(
+        selectedRoute.route.plan,
+        target,
+        context,
+        selectedRoute.route.requirements,
+      );
     }
     if (this.#options.plan !== undefined) {
       return this.#planConfiguredRoute(this.#options.plan, target, context);
@@ -210,8 +221,10 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     planConfig: ProxyPlanConfig,
     target: GatewayTargetRequest,
     context: GatewayExecutionContext,
+    routeRequirements?: ProxyRouteRequirements,
   ): Promise<ProxyExecutionPlan | Response> {
-    const plan = await this.#applySessionPin(planConfig, target, context);
+    const mergedPlanConfig = mergeRouteRequirementsIntoPlan(planConfig, routeRequirements);
+    const plan = await this.#applySessionPin(mergedPlanConfig, target, context);
 
     if (plan instanceof Response) {
       return plan;

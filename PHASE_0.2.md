@@ -179,15 +179,15 @@ Purpose:
 
 Red:
 - Add tests for `createMemoryProxySessionStore()` in `src/adapters/outbound`.
-- Extend beyond the Step 4 port contract by covering multi-record overwrite, partial touch/delete, and missing-key behavior.
-- Cover expiration timestamp storage without making the store interpret expiry.
+- Cover set/get/delete/touch for multiple records.
+- Cover TTL expiration using an injected clock or deterministic timestamp input.
 - Cover overwrite behavior for the same session key.
 - Cover no cross-session leakage.
 
 Green:
 - Complete the existing dependency-free memory session store in `src/adapters/outbound`.
 - Export it from `src/adapters/outbound` and the package root only if intended as public API.
-- Do not read globals for time; the store persists caller-provided `expiresAt` values and leaves expiry interpretation to app-level session coordination.
+- Do not read globals for time if a clock/now input is available through the port.
 
 Verify:
 - Memory store tests pass.
@@ -403,7 +403,7 @@ Next three steps reassessment:
 - Step 13 remains ready. Route/default configs now replace the normal `providerSelection` path for configured gateways, so Step 13 should decide whether to remove `providerSelection` or explicitly confine it to no-plan compatibility.
 - Step 14 remains ready after Step 13. Pipeline wiring should account for the route-selected configured-plan path rather than adding a third independent planning path.
 
-## 12. Route Requirements Merge
+## 12. Route Requirements Merge - Completed
 
 Purpose:
 - Combine route-level requirements and attempt-level requirements predictably.
@@ -430,6 +430,19 @@ Green:
 Verify:
 - Requirements merge tests pass.
 - Planner capability tests still pass.
+
+Progress:
+- Added focused merge tests for provider include/exclude ids, protocols, network types, DNS, geo, verification, identity, custom fields, array replacement, and no-mutation behavior.
+- Added gateway route/default-route integration tests proving selected route/default requirements are merged into implicit plan attempts before planning.
+- Added `mergeProxyRouteRequirements()` and `mergeRouteRequirementsIntoPlan()` in `src/app/planning`.
+- Wired route/default requirements merge before session pinning and `ExecutionPlanner` validation, so route-level identity defaults can participate in sticky-session behavior.
+- Documented the merge rule in README: nested `dns`, `geo`, `verification`, and `identity` merge by field; attempt-level arrays replace route/default arrays.
+- Checked nested AGENTS files and updated `src/app/planning/AGENTS.md` plus `src/app/use-cases/AGENTS.md` for the durable merge ownership and ordering rules.
+
+Next three steps reassessment:
+- Step 13 is ready. Since route/default configs now cover provider selection through plan and requirements, `providerSelection` should either be removed from public options or explicitly constrained to the no-plan/no-routes/no-default/no-pipeline compatibility path.
+- Step 14 is ready after Step 13. Pipeline wiring should reuse the configured-plan helper and the requirements merge helper where pipeline output creates or modifies requirements.
+- Step 15 remains useful. Built-in `requirements.merge` should reuse or match the Step 12 merge semantics instead of defining a second array/object merge rule.
 
 ## 13. Remove Or Narrow Provider Selection Bridge
 
