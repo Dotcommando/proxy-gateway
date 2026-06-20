@@ -134,6 +134,18 @@ describe('public contract types', () => {
     expect(options.sessionStore).toBe(sessionStore);
   });
 
+  it('does not accept the removed providerSelection gateway option', () => {
+    const options: ProxyGatewayOptions = {
+      // @ts-expect-error providerSelection was removed; use plan, routes, defaultRoute, or pipelines.
+      providerSelection: {
+        providerInstanceId: 'provider-a',
+      },
+      providers: [],
+    };
+
+    expect(options.providers).toEqual([]);
+  });
+
   it('binds route configs to matcher, plan, and requirements contracts', () => {
     const routeMatch: ProxyRouteMatch = {
       host: {

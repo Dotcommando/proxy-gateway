@@ -193,22 +193,20 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     if (this.#options.plan !== undefined) {
       return this.#planConfiguredRoute(this.#options.plan, target, context);
     }
+    if (this.#usesConfiguredPipelines()) {
+      return this.#envelopeBuilder.buildServiceError(500, {
+        code: RESPONSE_CODE.REJECTED_BY_POLICY,
+        message: 'Pipeline configuration requires pipeline planning.',
+        retryable: false,
+      });
+    }
 
-    const providerSelection = selectProviderInstance(
-      this.#options.providers,
-      this.#options.providerSelection?.providerInstanceId,
-    );
+    const providerSelection = selectProviderInstance(this.#options.providers);
 
     if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED) {
       return this.#envelopeBuilder.buildServiceError(500, {
         code: RESPONSE_CODE.NO_PROVIDER_AVAILABLE,
         message: 'No enabled proxy provider is available.',
-      });
-    }
-    if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND) {
-      return this.#envelopeBuilder.buildServiceError(500, {
-        code: RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND,
-        message: `Provider instance "${providerSelection.providerInstanceId}" was not found or is disabled.`,
       });
     }
 
@@ -248,6 +246,10 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
 
   #usesDeclarativeRouting(): boolean {
     return this.#options.routes !== undefined || this.#options.defaultRoute !== undefined;
+  }
+
+  #usesConfiguredPipelines(): boolean {
+    return this.#options.pipelines !== undefined && this.#options.pipelines.length > 0;
   }
 
   async #applySessionPin(
@@ -371,21 +373,9 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
 
 type ProviderSelectionResult =
   | { kind: PROVIDER_SELECTION_RESULT_KIND.SELECTED; provider: ProxyProviderInstance }
-  | { kind: PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND; providerInstanceId: string }
   | { kind: PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED };
 
-function selectProviderInstance(
-  providers: ProxyProviderInstance[],
-  providerInstanceId?: string,
-): ProviderSelectionResult {
-  if (providerInstanceId !== undefined) {
-    const provider = providers.find((candidate) => candidate.id === providerInstanceId && candidate.enabled !== false);
-
-    return provider
-      ? { kind: PROVIDER_SELECTION_RESULT_KIND.SELECTED, provider }
-      : { kind: PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND, providerInstanceId };
-  }
-
+function selectProviderInstance(providers: ProxyProviderInstance[]): ProviderSelectionResult {
   const provider = providers.find((candidate) => candidate.enabled !== false);
 
   return provider

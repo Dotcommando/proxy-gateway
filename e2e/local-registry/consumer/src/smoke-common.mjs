@@ -85,10 +85,15 @@ export function createProxyFetchEnvelope() {
 
 export async function assertGatewaySmoke(createProxyGateway, label) {
   const gateway = createProxyGateway({
-    providers: [createProvider()],
-    providerSelection: {
-      providerInstanceId: 'local-direct-provider'
+    plan: {
+      attempts: [
+        {
+          provider: 'local-direct-provider'
+        }
+      ],
+      kind: 'fallback'
     },
+    providers: [createProvider()],
     transport: createTransport()
   });
 

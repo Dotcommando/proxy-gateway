@@ -29,7 +29,6 @@ export interface ProxyGatewayOptions {
   exitVerifier?: ProxyExitVerifierPort;
   plan?: ProxyPlanConfig;
   pipelines?: ProxyPipelineConfig[];
-  providerSelection?: ProviderSelectionConfig;
   providers: ProxyProviderInstance[];
   random?: RandomPort;
   redaction?: RedactionPolicy;
@@ -40,10 +39,6 @@ export interface ProxyGatewayOptions {
   targetAccess?: TargetAccessPolicy;
   timeouts?: TimeoutPolicy;
   transport?: TargetTransportPort;
-}
-
-export interface ProviderSelectionConfig {
-  providerInstanceId?: string;
 }
 
 export interface RetrySafetyPolicy {

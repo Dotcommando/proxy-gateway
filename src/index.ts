@@ -10,7 +10,6 @@ export type {
 export type { RedactionPolicy } from './app/redaction';
 export type {
   BodyBufferingPolicy,
-  ProviderSelectionConfig,
   ProxyGatewayOptions,
   RetrySafetyPolicy,
   TargetAccessPolicy,

@@ -25,7 +25,7 @@ After completing each step, review the next three steps before moving on. Update
 - Sticky/session behavior is fully implemented, not just modelled.
 - Declarative route/default-route configuration works through `createProxyGateway()`.
 - Pipeline configuration works through `createProxyGateway()` with useful built-in steps.
-- Temporary `providerSelection.providerInstanceId` is removed or explicitly narrowed as a legacy/no-plan bridge with tests.
+- Temporary `providerSelection.providerInstanceId` is removed with tests.
 
 ## 1. v0.2 Contract Baseline - Completed
 
@@ -444,7 +444,7 @@ Next three steps reassessment:
 - Step 14 is ready after Step 13. Pipeline wiring should reuse the configured-plan helper and the requirements merge helper where pipeline output creates or modifies requirements.
 - Step 15 remains useful. Built-in `requirements.merge` should reuse or match the Step 12 merge semantics instead of defining a second array/object merge rule.
 
-## 13. Remove Or Narrow Provider Selection Bridge
+## 13. Remove Or Narrow Provider Selection Bridge - Completed
 
 Purpose:
 - Stop relying on `providerSelection.providerInstanceId` as the normal user path.
@@ -462,6 +462,20 @@ Green:
 Verify:
 - Public API tests pass.
 - Local registry consumer does not rely on `providerSelection` after this step if route/default-route config can replace it.
+
+Progress:
+- Removed `ProxyGatewayOptions.providerSelection` and the root `ProviderSelectionConfig` type export.
+- Removed runtime support for selecting a specific provider through the old provider-selection bridge.
+- Kept no-plan fallback limited to automatic first-enabled-provider selection when no `plan`, `routes`, `defaultRoute`, or non-empty `pipelines` are configured.
+- Added contract tests proving `providerSelection` is no longer accepted by `ProxyGatewayOptions` and is not documented in README.
+- Added gateway tests proving explicit provider choice now goes through configured `plan`, `routes`, or `defaultRoute`.
+- Updated local registry consumer smoke files to use configured plans instead of `providerSelection`.
+- Checked nested AGENTS files and updated `src/app/AGENTS.md` plus `src/app/use-cases/AGENTS.md` for the durable removal rule.
+
+Next three steps reassessment:
+- Step 14 is ready. Since non-empty `pipelines` now block no-plan fallback, pipeline wiring must produce an executable configured plan or a stable service error instead of falling through to direct provider selection.
+- Step 15 remains ready. Built-in requirement steps should reuse the Step 12 merge semantics where applicable.
+- Step 16 remains ready after Step 15. Provider selection/ranking built-ins must select provider instance ids for planner attempts, not resurrect a separate gateway-level provider-selection option.
 
 ## 14. Pipeline Options Wiring
 

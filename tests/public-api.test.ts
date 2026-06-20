@@ -32,6 +32,12 @@ describe('public API', () => {
     }
   });
 
+  it('does not document providerSelection as a public configuration path', () => {
+    const readme = readFileSync('README.md', 'utf8');
+
+    expect(readme).not.toContain('providerSelection');
+  });
+
   it('does not export real provider, framework, or Tor adapter factories from the core package', () => {
     const forbiddenRuntimeExports = [
       'createBrightDataProvider',
