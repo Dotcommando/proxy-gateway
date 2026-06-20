@@ -721,7 +721,7 @@ Next three steps reassessment:
 - Step 22 is ready after Step 21. Consumer smoke should include route/default config, pipeline built-ins (`requirements.*`, provider selection/ranking, `plan.fallback`), sticky session reuse with `createMemoryProxySessionStore()`, and public type imports.
 - Step 23 remains ready after e2e coverage; README examples should reflect the final precedence and sticky-session behavior rather than the earlier pipeline-authoritative draft.
 
-## 21. Target Access And Redaction Regression For Declarative Flow
+## 21. Target Access And Redaction Regression For Declarative Flow - Completed
 
 Purpose:
 - Ensure the new route/pipeline/session flow does not weaken v0.1 security behavior.
@@ -744,6 +744,17 @@ Green:
 Verify:
 - Security regression tests pass.
 - Existing target access and redaction tests still pass.
+
+Progress:
+- Added declarative security regression tests proving denied targets return before session-store reads/writes, pipeline step execution, provider capability lookup, provider acquire, verifier, and transport execution.
+- Added declarative route+pipeline service-error diagnostics coverage proving target headers/URL secrets and route credentials remain redacted after target transport failure.
+- No production code changes were needed because target access already runs before declarative planning and service-error details already flow through `ResultClassifier` diagnostics.
+- Checked nested AGENTS files; no updates were needed for this test-only step.
+
+Next three steps reassessment:
+- Step 22 is ready. It should now exercise the final public v0.2 behavior through the installed package: route/default config, route fallback, pipeline built-ins including requirements/provider ranking/`plan.fallback`, sticky session reuse with `createMemoryProxySessionStore()`, and public type imports.
+- Step 23 is ready after Step 22. README examples should document the final precedence rule: route/default requirements feed pipelines, selected pipeline plans win, skipped/no-plan pipelines fall through to route/default/direct plan, and no-plan fallback is disabled when pipelines are configured.
+- Step 24 remains useful after README/e2e because it should audit nested AGENTS for any remaining gaps from route/pipeline/e2e work rather than revisiting session rules already captured.
 
 ## 22. Local Registry Consumer E2E For v0.2 Config
 
