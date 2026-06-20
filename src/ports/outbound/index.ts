@@ -89,10 +89,20 @@ export interface ProxyVerificationRequirements {
   verifyExit?: boolean;
 }
 
+export interface ProxyIdentityRequirements {
+  isolationKey?: string;
+  isolationScope?: string;
+  requestNewIdentity?: boolean;
+  rotation?: string;
+  stickySessionId?: string;
+  stickySessionTtlMs?: number;
+}
+
 export interface ProxyRouteRequirements {
   dns?: ProxyDnsRequirements;
   excludeProviderInstanceIds?: string[];
   geo?: ProxyGeoRequirements;
+  identity?: ProxyIdentityRequirements;
   networkTypes?: ProxyNetworkType[];
   protocols?: ProxyProtocol[];
   providerInstanceIds?: string[];
@@ -431,6 +441,27 @@ export interface TargetTransportExecuteInput {
 export interface TargetTransportPort {
   execute(input: TargetTransportExecuteInput): Promise<GatewayTargetResponse>;
   supportsRoute?(route: ProxyRoute): boolean;
+}
+
+export interface ProxySessionRecord {
+  expiresAt?: Date;
+  identity?: ProxyIdentityRequirements;
+  key: string;
+  metadata?: Record<string, unknown>;
+  providerInstanceId: string;
+  providerKind: string;
+}
+
+export interface ProxySessionTouch {
+  expiresAt: Date;
+  key: string;
+}
+
+export interface ProxySessionStorePort {
+  deleteMany(keys: string[]): Promise<void>;
+  getMany(keys: string[]): Promise<ProxySessionRecord[]>;
+  setMany(records: ProxySessionRecord[]): Promise<void>;
+  touchMany(touches: ProxySessionTouch[]): Promise<void>;
 }
 
 export interface TargetFinalUrlCheckInput {

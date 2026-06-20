@@ -145,30 +145,25 @@ export interface ProxyGateway {
 
 export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
+  routes?: Array<ProxyRouteConfig<ProxyPlanConfig>>;
+  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig>;
   pipelines?: ProxyPipelineConfig[];
-  policy?: ProxyRoutingPolicy;
-
-  services?: ProxyGatewayServices;
-  stepRegistry?: ProxyPipelineStepRegistry;
+  stepRegistry?: ProxyPipelineStepRegistryPort;
   transport?: TargetTransportPort;
 
   targetAccess?: TargetAccessPolicy;
   retrySafety?: RetrySafetyPolicy;
   bodyBuffering?: BodyBufferingPolicy;
-  responseStreaming?: ResponseStreamingPolicy;
   redaction?: RedactionPolicy;
-  limits?: GatewayLimits;
+  timeouts?: TimeoutPolicy;
+  plan?: ProxyPlanConfig;
 
   sessionStore?: ProxySessionStorePort;
-  secretResolver?: SecretResolverPort;
-  rateLimiter?: RateLimiterPort;
-  logger?: GatewayLoggerPort;
-  telemetry?: GatewayTelemetryPort;
-  clock?: ClockPort;
   random?: RandomPort;
 }
 
 export function createProxyGateway(options: ProxyGatewayOptions): ProxyGateway;
+export function createMemoryProxySessionStore(): ProxySessionStorePort;
 ```
 
 The primary integration point is `ProxyGateway.handle(request)`. Framework-specific integrations should delegate to this method.
@@ -372,7 +367,27 @@ const pipelines: ProxyPipelineConfig[] = [
 ];
 ```
 
-If you need fully custom routing, provide a programmatic `ProxyRoutingPolicy`.
+If you need fully custom routing, provide explicit plans or custom pipeline steps from application code.
+
+## Sessions
+
+Sticky-session behavior is configured through route or pipeline requirements and a session store.
+
+```ts
+import {
+  createMemoryProxySessionStore,
+  createProxyGateway,
+} from '@echospecter/proxy-gateway';
+
+const gateway = createProxyGateway({
+  providers,
+  routes,
+  defaultRoute,
+  sessionStore: createMemoryProxySessionStore(),
+});
+```
+
+Applications that need shared or durable sticky sessions can implement `ProxySessionStorePort`.
 
 ## Matchers
 

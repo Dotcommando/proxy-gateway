@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from '@jest/globals';
 
+import * as gatewayExports from '../src';
 import {
   createProxyGateway,
   type GatewayTargetRequest,
@@ -12,6 +15,41 @@ import {
 } from '../src';
 
 describe('public API', () => {
+  it('keeps the README aligned with v0.2 route, pipeline, and session contract names', () => {
+    const readme = readFileSync('README.md', 'utf8');
+    const documentedContractNames = [
+      'routes?:',
+      'defaultRoute?:',
+      'pipelines?:',
+      'stepRegistry?:',
+      'sessionStore?:',
+      'ProxySessionStorePort',
+      'createMemoryProxySessionStore',
+    ];
+
+    for (const contractName of documentedContractNames) {
+      expect(readme).toContain(contractName);
+    }
+  });
+
+  it('does not export real provider, framework, or Tor adapter factories from the core package', () => {
+    const forbiddenRuntimeExports = [
+      'createBrightDataProvider',
+      'createOxylabsProvider',
+      'createSoaxProvider',
+      'createWebshareProvider',
+      'createExpressMiddleware',
+      'createFastifyPlugin',
+      'createNestProxyGatewayModule',
+      'createTorProvider',
+      'createTorControlPortClient',
+    ];
+
+    for (const exportName of forbiddenRuntimeExports) {
+      expect(exportName in gatewayExports).toBe(false);
+    }
+  });
+
   it('creates a gateway that handles a proxy-fetch.v1 JSON request through a direct provider', async () => {
     const acquiredTargets: GatewayTargetRequest[] = [];
     const requestIds: string[] = [];

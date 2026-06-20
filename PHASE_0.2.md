@@ -23,7 +23,7 @@ This phase turns the v0.1 core vertical slice into a configurable gateway:
 - Pipeline configuration works through `createProxyGateway()` with useful built-in steps.
 - Temporary `providerSelection.providerInstanceId` is removed or explicitly narrowed as a legacy/no-plan bridge with tests.
 
-## 1. v0.2 Contract Baseline
+## 1. v0.2 Contract Baseline - Completed
 
 Purpose:
 - Capture the current public API gaps before implementation.
@@ -34,7 +34,7 @@ Red:
 - Add type-level tests proving `ProxyRouteRequirements.identity` is a structured identity requirement, not just accepted by the index signature.
 - Add tests proving `ProxySessionStorePort` and memory session-store factory are intended public exports.
 - Add tests proving real provider/framework/Tor adapters are not exported by this package.
-- Add README/API alignment tests for v0.2 route, pipeline, and session examples.
+- Add README/API alignment baseline tests for v0.2 route, pipeline, and session examples. In this step, these tests should prove the documented public contract names exist and remain dependency-free; later behavior-specific README alignment belongs to step 23.
 
 Green:
 - Add only the minimum public type placeholders required to make the tests compile when the step is intentionally about contract shape.
@@ -43,6 +43,17 @@ Green:
 Verify:
 - `npm test -- --runTestsByPath tests/public-api.test.ts tests/public-contract-types.test.ts`
 - `npm run typecheck`
+
+Progress:
+- Added public contract tests for v0.2 route/default-route, pipeline/step-registry, structured identity, session-store, memory session-store factory, forbidden provider/framework/Tor exports, and README/API baseline names.
+- Added minimal public contracts only: `ProxyGatewayOptions.routes`, `defaultRoute`, `pipelines`, `stepRegistry`, `sessionStore`; `ProxyIdentityRequirements`; `ProxySessionRecord`; `ProxySessionStorePort`; `ProxySessionTouch`; and `createMemoryProxySessionStore()`.
+- Updated README public API baseline to name route, pipeline, and session contracts without documenting completed runtime behavior for later v0.2 steps.
+- Checked nested AGENTS files and updated `src/ports/outbound/AGENTS.md` plus `src/adapters/outbound/AGENTS.md` for the durable session-store ownership rule.
+
+Next three steps reassessment:
+- Step 2 is ready. It should replace the placeholder string identity fields with package enums and fully specified `ProxyIdentityRequirements` semantics.
+- Step 3 is ready after Step 2. Keep key derivation in `src/app/sessions` and route/host normalization helpers in domain only if they become reusable.
+- Step 4 is partly started by the baseline port shape. Its Red/Green work should now focus on behavior contracts, record metadata/identity snapshots, and proving expiry handling belongs to the app-level session manager rather than each store.
 
 ## 2. Identity Requirement Model
 

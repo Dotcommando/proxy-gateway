@@ -1,5 +1,6 @@
 export type { NodeHttpHandler } from './adapters/inbound';
 export { createNodeHttpHandler } from './adapters/inbound';
+export { createMemoryProxySessionStore } from './adapters/outbound';
 export { createProxyGateway } from './app/create-proxy-gateway';
 export type {
   ProxyFallbackPlanConfig,
@@ -16,6 +17,11 @@ export type {
   TimeoutPolicy,
 } from './app/types';
 export * from './constants';
+export type {
+  ProxyDefaultRouteConfig,
+  ProxyRouteConfig,
+  ProxyRouteMatch,
+} from './domain/routing';
 export type { ProxyGateway } from './ports/inbound';
 export type {
   CustomTransportExecuteInput,
@@ -46,6 +52,7 @@ export type {
   ProxyExitVerifyInput,
   ProxyGatewayServices,
   ProxyGeoRequirements,
+  ProxyIdentityRequirements,
   ProxyLease,
   ProxyNetworkType,
   ProxyPipelineConfig,
@@ -68,6 +75,9 @@ export type {
   ProxyRouteAuthMode,
   ProxyRouteHop,
   ProxyRouteRequirements,
+  ProxySessionRecord,
+  ProxySessionStorePort,
+  ProxySessionTouch,
   ProxyVerificationRequirements,
   RandomPort,
   RouteChain,

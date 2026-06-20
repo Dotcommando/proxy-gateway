@@ -69,3 +69,9 @@ Local Tor, hosted Tor SOCKS endpoints, commercial proxy providers, and static fo
 `ProxyExitVerifierPort` is generic, not Tor-specific. It receives request id, lease, route, expected geo requirements, and the active attempt signal.
 
 Real DNS, GeoIP, IP intelligence, target probing, and HTTP exit verifier implementations live outside the core package.
+
+## Session Store Port
+
+`ProxySessionStorePort` is an outbound persistence contract for sticky/session coordination. It must remain provider-agnostic and batch-oriented (`getMany`, `setMany`, `deleteMany`, `touchMany`).
+
+Session records identify provider instances by provider instance id and provider kind. Store implementations should persist records; app-level session coordination owns expiry interpretation, provider compatibility checks, and request-new-identity policy.
