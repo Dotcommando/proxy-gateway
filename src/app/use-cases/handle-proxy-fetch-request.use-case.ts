@@ -8,8 +8,10 @@ import {
   PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_PLAN_KIND,
   RESPONSE_CODE,
+  ROUTE_SELECTION_RESULT_KIND,
   TARGET_ACCESS_RESULT_KIND,
 } from '../../constants';
+import { selectRoute } from '../../domain/routing';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
   GatewayExecutionContext,
@@ -157,27 +159,28 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     target: GatewayTargetRequest,
     context: GatewayExecutionContext,
   ): Promise<ProxyExecutionPlan | Response> {
-    if (this.#options.plan !== undefined) {
-      const plan = await this.#applySessionPin(this.#options.plan, target, context);
+    if (this.#usesDeclarativeRouting()) {
+      const selectedRoute = selectRoute({
+        ...(this.#options.defaultRoute === undefined ? {} : { defaultRoute: this.#options.defaultRoute }),
+        routes: this.#options.routes ?? [],
+        target: {
+          method: target.method,
+          url: target.url,
+        },
+      });
 
-      if (plan instanceof Response) {
-        return plan;
-      }
-
-      const plannerResult = await new ExecutionPlanner({
-        exitVerifierAvailable: this.#options.exitVerifier !== undefined,
-        providers: this.#options.providers,
-      }).plan({ plan });
-
-      if (plannerResult.kind === PLANNER_RESULT_KIND.REJECTED) {
-        return this.#envelopeBuilder.buildServiceError(500, {
-          code: plannerResult.code,
-          message: plannerResult.message,
+      if (selectedRoute.kind === ROUTE_SELECTION_RESULT_KIND.NO_MATCH) {
+        return this.#envelopeBuilder.buildServiceError(404, {
+          code: selectedRoute.code,
+          message: selectedRoute.message,
           retryable: false,
         });
       }
 
-      return plannerResult.plan;
+      return this.#planConfiguredRoute(selectedRoute.route.plan, target, context);
+    }
+    if (this.#options.plan !== undefined) {
+      return this.#planConfiguredRoute(this.#options.plan, target, context);
     }
 
     const providerSelection = selectProviderInstance(
@@ -201,6 +204,37 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     await providerSelection.provider.adapter.getCapabilities();
 
     return createSingleAttemptPlan(providerSelection.provider);
+  }
+
+  async #planConfiguredRoute(
+    planConfig: ProxyPlanConfig,
+    target: GatewayTargetRequest,
+    context: GatewayExecutionContext,
+  ): Promise<ProxyExecutionPlan | Response> {
+    const plan = await this.#applySessionPin(planConfig, target, context);
+
+    if (plan instanceof Response) {
+      return plan;
+    }
+
+    const plannerResult = await new ExecutionPlanner({
+      exitVerifierAvailable: this.#options.exitVerifier !== undefined,
+      providers: this.#options.providers,
+    }).plan({ plan });
+
+    if (plannerResult.kind === PLANNER_RESULT_KIND.REJECTED) {
+      return this.#envelopeBuilder.buildServiceError(500, {
+        code: plannerResult.code,
+        message: plannerResult.message,
+        retryable: false,
+      });
+    }
+
+    return plannerResult.plan;
+  }
+
+  #usesDeclarativeRouting(): boolean {
+    return this.#options.routes !== undefined || this.#options.defaultRoute !== undefined;
   }
 
   async #applySessionPin(

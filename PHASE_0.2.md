@@ -366,7 +366,7 @@ Next three steps reassessment:
 - Step 12 is confirmed and should implement the merge of route/default requirements with per-attempt requirements. The merge rule must be explicit, especially for array fields such as provider include/exclude ids, protocols, and network types.
 - Step 13 remains ready after route wiring and requirements merge. Its tests should verify `providerSelection` is no longer the normal documented path once route/default route config can select providers through plan/requirements.
 
-## 11. Route Selection Wiring
+## 11. Route Selection Wiring - Completed
 
 Purpose:
 - Use declarative `routes` in the actual gateway request flow.
@@ -390,6 +390,18 @@ Green:
 Verify:
 - Route wiring integration tests pass.
 - Existing direct `options.plan` tests still pass.
+
+Progress:
+- Added gateway integration tests for route matching by host/path/method, priority ordering, exclude handling, default route fallback, `NO_ROUTE_MATCHED`, normalized target matching, and target-access-before-planning behavior.
+- Wired `selectRoute()` into `HandleProxyFetchRequestUseCase` when `routes` or `defaultRoute` are configured.
+- Routed selected route/default `plan` through the same configured-plan path used by direct `options.plan`, including session pinning and `ExecutionPlanner` validation.
+- Kept the temporary `providerSelection.providerInstanceId` path as no-plan fallback only.
+- Checked nested AGENTS files and updated `src/app/use-cases/AGENTS.md` for route/default route planning ownership.
+
+Next three steps reassessment:
+- Step 12 is ready and now has a real route-selected planning path to extend. It should merge selected route/default `requirements` into each selected-plan attempt before session pinning and planner validation.
+- Step 13 remains ready. Route/default configs now replace the normal `providerSelection` path for configured gateways, so Step 13 should decide whether to remove `providerSelection` or explicitly confine it to no-plan compatibility.
+- Step 14 remains ready after Step 13. Pipeline wiring should account for the route-selected configured-plan path rather than adding a third independent planning path.
 
 ## 12. Route Requirements Merge
 

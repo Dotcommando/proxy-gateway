@@ -18,7 +18,9 @@ Request
 
 It may build Web `Response` objects through envelope builders. It must not inline provider acquire/release, transport execution, retry-loop, or lease-verification details when those belong to app collaborators.
 
-When `ProxyGatewayOptions.plan` is configured, this use-case must resolve sticky-session read-path pins before obtaining the executable attempt plan from `ExecutionPlanner`. Session hits may constrain the first configured attempt to a provider instance, but `ExecutionPlanner` must still perform provider capability checks. The temporary `providerSelection.providerInstanceId` bridge is only for no-plan fallback behavior until route/pipeline planning fully owns default direct-route selection.
+When `ProxyGatewayOptions.routes` or `defaultRoute` are configured, this use-case must select a route/default route after target access and before planning. The selected route/default `plan` flows through the same configured-plan path as `ProxyGatewayOptions.plan`.
+
+When a configured plan is selected from either `ProxyGatewayOptions.plan` or declarative route/default-route config, this use-case must resolve sticky-session read-path pins before obtaining the executable attempt plan from `ExecutionPlanner`. Session hits may constrain the first configured attempt to a provider instance, but `ExecutionPlanner` must still perform provider capability checks. The temporary `providerSelection.providerInstanceId` bridge is only for no-plan fallback behavior until route/pipeline planning fully owns default direct-route selection.
 
 After a completed successful attempt with identity TTL requirements, this use-case owns best-effort sticky-session writes through `ProxySessionStorePort`. Session write failures must not mask a successful target response. Provider-scoped session writes should remove stale candidate keys before writing the successful provider record.
 
