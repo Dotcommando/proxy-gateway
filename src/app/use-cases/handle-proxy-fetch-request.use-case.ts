@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ATTEMPT_EXECUTOR_RESULT_KIND,
   GATEWAY_TIMEOUT_MESSAGE,
+  PIPELINE_RESULT_KIND,
   PLANNER_RESULT_KIND,
   PROVIDER_SELECTION_RESULT_KIND,
   PROXY_ATTEMPT_RESULT_OUTCOME,
@@ -16,6 +17,7 @@ import type { ProxyGateway } from '../../ports/inbound';
 import type {
   GatewayExecutionContext,
   GatewayTargetRequest,
+  ProxyDecisionState,
   ProxyExecutionPlan,
   ProxyProviderInstance,
   ProxyRouteRequirements,
@@ -25,6 +27,7 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
+import { ProxyPipelineEngine, ProxyPipelineStepRegistry } from '../pipeline';
 import {
   ExecutionPlanner,
   mergeRouteRequirementsIntoPlan,
@@ -94,7 +97,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       }
 
       const requestId = this.#options.random?.createId() ?? randomUUID();
-      const executionPlan = await this.#createExecutionPlan(target, parsed.context);
+      const executionPlan = await this.#createExecutionPlan(
+        target,
+        parsed.context,
+        requestId,
+        totalScope.signal,
+      );
 
       if (executionPlan instanceof Response) {
         return executionPlan;
@@ -164,7 +172,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   async #createExecutionPlan(
     target: GatewayTargetRequest,
     context: GatewayExecutionContext,
+    requestId: string,
+    signal: AbortSignal,
   ): Promise<ProxyExecutionPlan | Response> {
+    if (this.#usesConfiguredPipelines()) {
+      return this.#createPipelineExecutionPlan(target, context, requestId, signal);
+    }
     if (this.#usesDeclarativeRouting()) {
       const selectedRoute = selectRoute({
         ...(this.#options.defaultRoute === undefined ? {} : { defaultRoute: this.#options.defaultRoute }),
@@ -193,13 +206,6 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     if (this.#options.plan !== undefined) {
       return this.#planConfiguredRoute(this.#options.plan, target, context);
     }
-    if (this.#usesConfiguredPipelines()) {
-      return this.#envelopeBuilder.buildServiceError(500, {
-        code: RESPONSE_CODE.REJECTED_BY_POLICY,
-        message: 'Pipeline configuration requires pipeline planning.',
-        retryable: false,
-      });
-    }
 
     const providerSelection = selectProviderInstance(this.#options.providers);
 
@@ -213,6 +219,55 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     await providerSelection.provider.adapter.getCapabilities();
 
     return createSingleAttemptPlan(providerSelection.provider);
+  }
+
+  async #createPipelineExecutionPlan(
+    target: GatewayTargetRequest,
+    context: GatewayExecutionContext,
+    requestId: string,
+    signal: AbortSignal,
+  ): Promise<ProxyExecutionPlan | Response> {
+    let state = createInitialPipelineState(target, context, this.#options.providers);
+    const engine = new ProxyPipelineEngine(this.#options.stepRegistry ?? new ProxyPipelineStepRegistry());
+
+    for (const pipeline of sortPipelines(this.#options.pipelines ?? [])) {
+      const result = await engine.execute({
+        initialState: state,
+        pipeline,
+        requestId,
+        services: {},
+        signal,
+      });
+
+      state = result.state;
+
+      if (result.kind === PIPELINE_RESULT_KIND.PLAN_SELECTED) {
+        return result.plan;
+      }
+      if (result.kind === PIPELINE_RESULT_KIND.REJECTED) {
+        return this.#envelopeBuilder.buildServiceError(result.decision.status ?? 403, {
+          code: result.decision.code,
+          message: result.decision.message,
+          retryable: false,
+        });
+      }
+      if (result.kind === PIPELINE_RESULT_KIND.STEP_NOT_FOUND) {
+        return this.#envelopeBuilder.buildServiceError(500, {
+          code: result.code,
+          message: result.message,
+          retryable: false,
+        });
+      }
+      if (result.kind === PIPELINE_RESULT_KIND.COMPLETED && result.state.plan !== undefined) {
+        return result.state.plan;
+      }
+    }
+
+    return this.#envelopeBuilder.buildServiceError(500, {
+      code: RESPONSE_CODE.REJECTED_BY_POLICY,
+      message: 'No configured pipeline selected an execution plan.',
+      retryable: false,
+    });
   }
 
   async #planConfiguredRoute(
@@ -394,6 +449,49 @@ function createSingleAttemptPlan(provider: ProxyProviderInstance): ProxyExecutio
     ],
     kind: PROXY_PLAN_KIND.FALLBACK,
   };
+}
+
+function createInitialPipelineState(
+  target: GatewayTargetRequest,
+  context: GatewayExecutionContext,
+  providers: ProxyProviderInstance[],
+): ProxyDecisionState {
+  return {
+    candidates: providers.flatMap((provider) => {
+      if (provider.enabled === false) {
+        return [];
+      }
+
+      return [
+        {
+          providerInstanceId: provider.id,
+          providerKind: provider.adapter.kind,
+          ...(provider.metadata === undefined ? {} : { metadata: provider.metadata }),
+          ...(provider.priority === undefined ? {} : { priority: provider.priority }),
+          ...(provider.weight === undefined ? {} : { weight: provider.weight }),
+        },
+      ];
+    }),
+    context,
+    facts: {},
+    metadata: {},
+    requirements: {},
+    target,
+  };
+}
+
+function sortPipelines<TPipeline extends { priority?: number }>(pipelines: TPipeline[]): TPipeline[] {
+  return pipelines
+    .map((pipeline, index) => ({
+      index,
+      pipeline,
+    }))
+    .sort((left, right) => {
+      const priorityDelta = (right.pipeline.priority ?? 0) - (left.pipeline.priority ?? 0);
+
+      return priorityDelta === 0 ? left.index - right.index : priorityDelta;
+    })
+    .map(({ pipeline }) => pipeline);
 }
 
 function attemptAcceptsSessionProvider(

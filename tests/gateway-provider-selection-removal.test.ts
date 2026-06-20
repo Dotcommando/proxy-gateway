@@ -89,7 +89,7 @@ describe('providerSelection removal', () => {
     expect(response.status).toBe(500);
     expect(await response.json()).toMatchObject({
       error: {
-        code: RESPONSE_CODE.REJECTED_BY_POLICY,
+        code: RESPONSE_CODE.PIPELINE_STEP_NOT_FOUND,
       },
       ok: false,
       version: WIRE_PROTOCOL_VERSION,

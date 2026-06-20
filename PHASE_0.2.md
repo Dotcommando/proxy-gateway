@@ -477,7 +477,7 @@ Next three steps reassessment:
 - Step 15 remains ready. Built-in requirement steps should reuse the Step 12 merge semantics where applicable.
 - Step 16 remains ready after Step 15. Provider selection/ranking built-ins must select provider instance ids for planner attempts, not resurrect a separate gateway-level provider-selection option.
 
-## 14. Pipeline Options Wiring
+## 14. Pipeline Options Wiring - Completed
 
 Purpose:
 - Make configured pipelines participate in gateway planning.
@@ -496,6 +496,19 @@ Green:
 Verify:
 - Pipeline wiring tests pass.
 - Existing pipeline engine unit tests still pass.
+
+Progress:
+- Added gateway integration tests proving configured `pipelines` and `stepRegistry` are used to select an executable plan.
+- Covered `when` prefilter behavior, `match` phase ordering after matching `when`, and stable pipeline priority/declaration-order selection.
+- Wired non-empty `ProxyGatewayOptions.pipelines` into `HandleProxyFetchRequestUseCase` after target access and before route/default/direct planning.
+- Built initial `ProxyDecisionState` from target, context, empty facts/requirements/metadata, and enabled provider candidates.
+- Kept pipeline steps behind `ProxyPipelineStepRegistryPort`; missing step types now return `PIPELINE_STEP_NOT_FOUND` instead of falling through to no-plan provider fallback.
+- Checked nested AGENTS files and added `src/app/pipeline/AGENTS.md` plus updated `src/app/use-cases/AGENTS.md` for pipeline flow ownership.
+
+Next three steps reassessment:
+- Step 15 is ready. Built-in requirement steps can now be exercised through both the unit step tests and the Step 14 gateway pipeline wiring.
+- Step 16 remains ready after Step 15. Provider selection/ranking steps should update pipeline state candidates/requirements and feed plan steps; they must not reintroduce a top-level provider-selection option.
+- Step 17 remains ready. `plan.fallback` should produce executable plans through `ExecutionPlanner` so pipeline-selected plans get provider capability validation.
 
 ## 15. Built-In Requirements Pipeline Steps
 
