@@ -51,6 +51,13 @@ import {
 import type { ProxyGatewayOptions } from '../types';
 import { AttemptExecutor } from './attempt-executor';
 
+interface ISessionPinRejected {
+  code: RESPONSE_CODE.NO_PLANNABLE_PROVIDER;
+  message: string;
+}
+
+type SessionPinResult = ISessionPinRejected | ProxyPlanConfig;
+
 export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #bodyBufferManager: BodyBufferManager;
   readonly #envelopeBuilder = new ProxyFetchEnvelopeBuilder();
@@ -268,7 +275,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         initialState: state,
         pipeline,
         requestId,
-        services: this.#createPipelineServices(),
+        services: this.#createPipelineServices(target, context),
         signal,
       });
 
@@ -299,13 +306,16 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     return undefined;
   }
 
-  #createPipelineServices(): ProxyGatewayServices {
+  #createPipelineServices(
+    target: GatewayTargetRequest,
+    context: GatewayExecutionContext,
+  ): ProxyGatewayServices {
     return {
       planner: {
         plan: (input: {
           candidates: ProxyProviderCandidate[];
           plan: ProxyPlanConfig;
-        }) => this.#planExecutionConfig(input.plan, input.candidates),
+        }) => this.#planPipelineConfig(input.plan, target, context, input.candidates),
       },
       ...(this.#options.random === undefined ? {} : { random: this.#options.random }),
     };
@@ -320,8 +330,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     const mergedPlanConfig = mergeRouteRequirementsIntoPlan(planConfig, routeRequirements);
     const plan = await this.#applySessionPin(mergedPlanConfig, target, context);
 
-    if (plan instanceof Response) {
-      return plan;
+    if (isSessionPinRejected(plan)) {
+      return this.#envelopeBuilder.buildServiceError(500, {
+        code: plan.code,
+        message: plan.message,
+        retryable: false,
+      });
     }
 
     const plannerResult = await this.#planExecutionConfig(plan);
@@ -335,6 +349,25 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     }
 
     return plannerResult.plan;
+  }
+
+  async #planPipelineConfig(
+    plan: ProxyPlanConfig,
+    target: GatewayTargetRequest,
+    context: GatewayExecutionContext,
+    candidates: ProxyProviderCandidate[],
+  ): Promise<ExecutionPlannerResult> {
+    const pinnedPlan = await this.#applySessionPin(plan, target, context);
+
+    if (isSessionPinRejected(pinnedPlan)) {
+      return {
+        code: pinnedPlan.code,
+        kind: PLANNER_RESULT_KIND.REJECTED,
+        message: pinnedPlan.message,
+      };
+    }
+
+    return this.#planExecutionConfig(pinnedPlan, candidates);
   }
 
   #planExecutionConfig(
@@ -359,7 +392,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     plan: ProxyPlanConfig,
     target: GatewayTargetRequest,
     context: GatewayExecutionContext,
-  ): Promise<ProxyPlanConfig | Response> {
+  ): Promise<SessionPinResult> {
     const [firstAttempt, ...remainingAttempts] = plan.attempts;
     const identity = firstAttempt?.requirements?.identity;
 
@@ -389,11 +422,10 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       sessionResult.providerInstanceId === undefined
       || !attemptAcceptsSessionProvider(firstAttempt, sessionResult.providerInstanceId)
     ) {
-      return this.#envelopeBuilder.buildServiceError(500, {
+      return {
         code: RESPONSE_CODE.NO_PLANNABLE_PROVIDER,
         message: 'Sticky session provider is incompatible with the first plan attempt.',
-        retryable: false,
-      });
+      };
     }
 
     return {
@@ -534,6 +566,10 @@ function readSelectedRouteRequirements(
   selectedRoute: RouteSelectionResult<ProxyPlanConfig, ProxyRouteRequirements> | undefined,
 ): ProxyRouteRequirements | undefined {
   return selectedRoute?.kind === ROUTE_SELECTION_RESULT_KIND.NO_MATCH ? undefined : selectedRoute?.route.requirements;
+}
+
+function isSessionPinRejected(result: SessionPinResult): result is ISessionPinRejected {
+  return 'code' in result;
 }
 
 function sortPipelines<TPipeline extends { priority?: number }>(pipelines: TPipeline[]): TPipeline[] {

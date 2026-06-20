@@ -686,7 +686,7 @@ Next three steps reassessment:
 - Step 21 remains ready. Its regression tests should include the route/default + pipeline precedence path from Step 18 and the declarative verification path from Step 19.
 - Step 22 remains ready after Steps 20-21 and should include smoke coverage for route/default config, pipeline built-ins including `plan.fallback`, verification flags where practical, sticky sessions, and memory session store imports.
 
-## 20. Sticky Sessions Through Declarative Routes
+## 20. Sticky Sessions Through Declarative Routes - Completed
 
 Purpose:
 - Prove full sticky/session behavior through the public v0.2 configuration path.
@@ -708,6 +708,18 @@ Green:
 Verify:
 - Sticky session gateway tests pass.
 - Memory store tests still pass.
+
+Progress:
+- Added declarative sticky-session gateway tests covering route-config session reuse and pipeline-config write/reuse behavior.
+- Added pipeline coverage for different flow isolation, expired-session cleanup, `requestNewIdentity` replacement, and fallback success updating the sticky provider.
+- Refactored session pinning in `HandleProxyFetchRequestUseCase` so built-in pipeline planning applies the same `SessionManager.read()` path before calling `ExecutionPlanner`.
+- Kept the post-success session write path shared for direct, route/default, and pipeline-selected attempts.
+- Checked nested AGENTS files and updated `src/app/use-cases/AGENTS.md` for the durable pipeline planner session-pin rule.
+
+Next three steps reassessment:
+- Step 21 is ready. It should verify target access still short-circuits before route selection, pipeline execution, session reads/writes, planner capability lookup, provider acquire, verifier, and transport across the final declarative flow.
+- Step 22 is ready after Step 21. Consumer smoke should include route/default config, pipeline built-ins (`requirements.*`, provider selection/ranking, `plan.fallback`), sticky session reuse with `createMemoryProxySessionStore()`, and public type imports.
+- Step 23 remains ready after e2e coverage; README examples should reflect the final precedence and sticky-session behavior rather than the earlier pipeline-authoritative draft.
 
 ## 21. Target Access And Redaction Regression For Declarative Flow
 
