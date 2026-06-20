@@ -38,6 +38,7 @@ Start from this root file, then load only the nested contracts relevant to the t
 - inbound HTTP/framework wrappers: src/adapters/inbound/AGENTS.md
 - outbound dependency-free adapters: src/adapters/outbound/AGENTS.md
 - test strategy and compatibility fixtures: tests/AGENTS.md
+- local publish/install smoke with Verdaccio: e2e/local-registry/AGENTS.md
 ```
 
 For example:
@@ -193,7 +194,9 @@ export interface ProxyGateway {
 export function createProxyGateway(options: ProxyGatewayOptions): ProxyGateway;
 ```
 
-Framework integrations must be thin wrappers around the same `ProxyGateway.handle()` method. Do not duplicate gateway logic across Node HTTP, Express, Fastify, and NestJS.
+The core v0.1 package exports the Web Fetch API gateway surface and the dependency-free Node HTTP handler. Express, Fastify, and NestJS adapters are deferred from the core package and should live in separate packages or future phases unless an active task explicitly changes that public contract.
+
+Framework integrations, when implemented, must be thin wrappers around the same `ProxyGateway.handle()` method. Do not duplicate gateway logic across Node HTTP, Express, Fastify, and NestJS.
 
 ## Core Responsibilities
 
