@@ -1,7 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
-  BODY_KIND_TEXT,
   createProxyGateway,
   type GatewayTargetResponse,
   PROXY_ATTEMPT_RESULT_OUTCOME,
@@ -15,7 +14,6 @@ import {
   type ProxyProviderCapabilities,
   type ProxyProviderInstance,
   type ProxyRoute,
-  type ProxyRouteRequirements,
   RESPONSE_CODE,
   RETRY_CONDITION,
   type TargetTransportPort,
@@ -426,7 +424,7 @@ describe('gateway planner-owned direct flow', () => {
     });
     const response = await gateway.handle(proxyFetchJsonRequest({
       body: {
-        kind: BODY_KIND_TEXT,
+        kind: 'text',
         text: 'unsafe write',
       },
       method: 'POST',
@@ -447,7 +445,7 @@ describe('gateway planner-owned direct flow', () => {
 
 interface IProxyFetchJsonRequestOptions {
   body?: null | {
-    kind: typeof BODY_KIND_TEXT;
+    kind: 'text';
     text: string;
   };
   headers?: Array<[string, string]>;
@@ -496,7 +494,7 @@ function okTransport(): TargetTransportPort {
 function okTargetResponse(): GatewayTargetResponse {
   return {
     body: {
-      kind: BODY_KIND_TEXT,
+      kind: 'text',
       replayability: 'replayable',
       text: 'ok',
     },
@@ -516,7 +514,13 @@ function forwardProxyRoute(host: string): ProxyRoute {
   };
 }
 
-function strictGermanGeoRequirements(): ProxyRouteRequirements {
+function strictGermanGeoRequirements(): ProxyProviderInstance['adapter']['acquire'] extends (
+  input: infer IInput,
+) => Promise<unknown>
+  ? IInput extends { requirements: infer IRequirements }
+    ? IRequirements
+    : never
+  : never {
   return {
     geo: {
       country: 'DE',

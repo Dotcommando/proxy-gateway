@@ -1509,7 +1509,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 25.3 Node Handler Body/Status/Error Matrix
+### 25.3 Node Handler Body/Status/Error Matrix - Done
 
 Scope:
 - Expand Node handler tests with fixtures introduced in steps 24.3 and 24.4.
@@ -1536,6 +1536,24 @@ Verify:
 - Existing gateway body/status and access/redaction tests still pass.
 - Final URL guard contract tests still pass.
 
+Implemented:
+- Added `tests/node-http-handler-matrix.test.ts` for the real `createNodeHttpHandler`.
+- Covered JSON text request/response preservation across the Node boundary.
+- Covered multipart binary request and multipart binary response preservation with sha256 byte assertions.
+- Covered null-body statuses `204`, `205`, and `304`.
+- Covered target HTTP statuses `403`, `404`, `429`, `500`, and `503` as successful service envelopes through the Node handler.
+- Covered service error `details` preservation across the Node boundary.
+- Covered `finalUrlGuard` behavior through the Node handler.
+- Extracted `tests/helpers/node-http-contract-adapter.ts` so Node handler tests share server setup.
+- Fixed the 24.4 multipart test helper to use `Buffer.from(body)` for TypeScript-compatible Web request bodies.
+- Checked nested AGENTS.md files; no new durable rule was needed beyond the 25.2 Node handler contract already recorded.
+
+Verified:
+- `npm test -- --runTestsByPath tests/node-http-handler-matrix.test.ts`
+- `npm test -- --runTestsByPath tests/node-http-handler-matrix.test.ts tests/node-http-handler.test.ts tests/inbound-adapter-contract.test.ts tests/gateway-body-status-compatibility.test.ts tests/gateway-access-redaction.test.ts tests/final-url-guard-contract.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ### 25.4 Dependency-Free Structural Framework Wrapper Decision
 
 Scope:
@@ -1548,13 +1566,16 @@ Red:
 - Add contract tests for structural wrappers only if the public export is intended for v0.1.
 - Add tests proving no framework package is imported by runtime code.
 - Add README/export expectation tests if wrappers are deferred.
+- Add a test proving only Node handler is exported from core inbound adapters if framework wrappers are deferred.
 
 Green:
 - Implement only wrappers that can stay thin, dependency-free, and well-typed.
 - Otherwise update plan/docs to defer framework wrappers.
+- Prefer deferring Express/Fastify/NestJS wrappers to separate packages unless a dependency-free structural wrapper has a clear v0.1 user need.
 
 Verify:
 - Wrapper decision is reflected in README, exports, and package checks.
+- Runtime dependency check still proves zero external runtime dependencies.
 
 ## 26. Public Exports and Packaging Checks
 
