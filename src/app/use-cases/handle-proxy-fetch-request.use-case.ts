@@ -27,7 +27,7 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
-import { ProxyPipelineEngine, ProxyPipelineStepRegistry } from '../pipeline';
+import { createBuiltInPipelineStepRegistry, ProxyPipelineEngine } from '../pipeline';
 import {
   ExecutionPlanner,
   mergeRouteRequirementsIntoPlan,
@@ -228,7 +228,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     signal: AbortSignal,
   ): Promise<ProxyExecutionPlan | Response> {
     let state = createInitialPipelineState(target, context, this.#options.providers);
-    const engine = new ProxyPipelineEngine(this.#options.stepRegistry ?? new ProxyPipelineStepRegistry());
+    const engine = new ProxyPipelineEngine(createBuiltInPipelineStepRegistry(this.#options.stepRegistry));
 
     for (const pipeline of sortPipelines(this.#options.pipelines ?? [])) {
       const result = await engine.execute({

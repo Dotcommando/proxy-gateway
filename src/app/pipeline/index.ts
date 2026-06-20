@@ -1,3 +1,4 @@
+export { createBuiltInPipelineStepRegistry } from './built-in-requirement-steps';
 export type {
   ProxyPipelineEngineInput,
   ProxyPipelineEngineResult,

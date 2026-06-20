@@ -510,7 +510,7 @@ Next three steps reassessment:
 - Step 16 remains ready after Step 15. Provider selection/ranking steps should update pipeline state candidates/requirements and feed plan steps; they must not reintroduce a top-level provider-selection option.
 - Step 17 remains ready. `plan.fallback` should produce executable plans through `ExecutionPlanner` so pipeline-selected plans get provider capability validation.
 
-## 15. Built-In Requirements Pipeline Steps
+## 15. Built-In Requirements Pipeline Steps - Completed
 
 Purpose:
 - Provide useful declarative steps without requiring users to implement common boilerplate.
@@ -533,6 +533,20 @@ Green:
 Verify:
 - Built-in requirement step tests pass.
 - Pipeline wiring tests still pass.
+
+Progress:
+- Added package enum `PIPELINE_STEP_TYPE` for built-in requirement step names and `PIPELINE_STEP_INVALID_ARGS` for stable invalid-args rejection.
+- Added built-in requirement steps: `requirements.set`, `requirements.merge`, `requirements.identity`, `requirements.geo`, and `requirements.verification`.
+- Reused Step 12 requirement merge semantics for `requirements.merge` and group-specific requirement steps.
+- Added validation for built-in args with stable `PIPELINE_STEP_INVALID_ARGS` reject decisions.
+- Composed built-ins into gateway pipeline execution by default while allowing user `stepRegistry` entries to intentionally override built-ins by type.
+- Added unit and gateway tests proving built-ins, invalid args, default registration, and override behavior.
+- Checked nested AGENTS files and updated `src/app/pipeline/AGENTS.md` for built-in step ownership and override rules.
+
+Next three steps reassessment:
+- Step 16 is ready. Provider selection/ranking built-ins should follow the same built-in registry composition and enum naming pattern introduced here.
+- Step 17 remains ready. `plan.fallback` should be a built-in step enum value and should use `ExecutionPlanner` rather than hand-building executable attempts.
+- Step 18 remains ready after Step 16-17. It should define final precedence now that route/default config, pipeline wiring, and built-in requirement steps all exist.
 
 ## 16. Built-In Provider Selection And Ranking Steps
 
