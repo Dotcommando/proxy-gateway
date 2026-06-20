@@ -584,7 +584,7 @@ Next three steps reassessment:
 - Step 18 is still needed. It should explicitly decide whether skipped pipelines fall through to route/default planning or whether any configured pipeline set is authoritative; current Step 14 behavior returns no-plan after all configured pipelines skip or complete without a plan.
 - Step 19 remains useful after Step 17 because route-level verification already merges into plans, but pipeline-produced verification needs a built-in plan path that can carry requirements into executable attempts.
 
-## 17. Built-In Plan Steps
+## 17. Built-In Plan Steps - Completed
 
 Purpose:
 - Let pipelines produce executable plan configs.
@@ -603,6 +603,20 @@ Green:
 Verify:
 - Built-in plan tests pass.
 - Retry/fallback gateway tests still pass.
+
+Progress:
+- Added package enum value `PIPELINE_STEP_TYPE.PLAN_FALLBACK = 'plan.fallback'`.
+- Added built-in `plan.fallback` pipeline step that parses fallback plan args, merges current `state.requirements`, constrains implicit attempts to current candidates, and delegates executable planning to an injected planner service backed by `ExecutionPlanner`.
+- The gateway pipeline service now orders providers by current pipeline candidates before calling `ExecutionPlanner`, so provider ranking/filtering built-ins influence implicit planning without exposing provider-specific config.
+- Added validation for malformed plan args with `PIPELINE_STEP_INVALID_ARGS` and stable planner rejection propagation for unknown provider references.
+- Added unit and gateway tests for default candidate-based planning, explicit provider/maxAttempts/timeout/retryOn/requirements/verification args, malformed attempts, unknown providers, and ranked gateway execution.
+- Updated the old provider-selection removal test to use a genuinely unregistered plan step now that `plan.fallback` is built in.
+- Checked nested AGENTS files and updated `src/app/pipeline/AGENTS.md` plus `src/app/use-cases/AGENTS.md` for planner-service ownership and restrictions.
+
+Next three steps reassessment:
+- Step 18 is ready and more important now: pipelines can produce executable plans, so precedence must decide whether skipped/no-plan pipelines fall through to route/default planning or remain authoritative. It should also decide how route/default requirements interact with pipeline plans, since current flow runs pipelines before route selection.
+- Step 19 is ready but can be narrowed: `plan.fallback` already accepts per-attempt `verification` args and passes them through requirements. Step 19 should focus on end-to-end verifier invocation, mismatch retry/fallback, and no-verifier rejection through route and pipeline paths.
+- Step 20 remains needed. Direct and route/default plans have session read/write helpers, but pipeline-selected executable plans currently do not apply session read-path pinning before planner execution; Step 20 should either add that or document a deliberate difference.
 
 ## 18. Pipeline And Route Precedence
 
@@ -642,7 +656,7 @@ Red:
 - Add tests proving no verifier produces stable rejection when strict verification requires one.
 
 Green:
-- Preserve verification requirements through merge, planner, and executor.
+- Preserve verification requirements through merge, built-in `plan.fallback`, planner, and executor.
 
 Verify:
 - Verification declarative integration tests pass.

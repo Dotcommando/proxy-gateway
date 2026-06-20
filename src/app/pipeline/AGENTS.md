@@ -9,3 +9,5 @@ Gateway wiring runs non-empty configured pipelines after target access and befor
 Built-in pipeline step names belong in package enums. Requirement built-ins are available by default through the gateway's pipeline registry composition. A user-provided registry intentionally overrides a built-in when it returns a step for the same type; otherwise built-ins remain available as fallback steps.
 
 Provider selection/ranking built-ins may only filter or reorder `ProxyDecisionState.candidates` built from enabled provider instances. They may use provider instance id, provider kind, tags, priority, weight, metadata, and injected pipeline services such as deterministic random, but must not inspect provider-specific adapter config, call provider adapters, or reintroduce a gateway-level provider-selection option.
+
+Plan built-ins produce executable `ProxyExecutionPlan` decisions by delegating provider validation and capability checks to an injected planner service backed by `ExecutionPlanner`. They may use current candidates as provider-order constraints, but must not acquire providers, execute transports, or bypass planner rejection codes.

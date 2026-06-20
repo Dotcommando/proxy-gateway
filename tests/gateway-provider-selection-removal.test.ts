@@ -78,7 +78,7 @@ describe('providerSelection removal', () => {
       pipelines: [
         {
           id: 'pipeline',
-          plan: [{ use: 'plan.fallback' }],
+          plan: [{ use: 'plan.unregistered' }],
         },
       ],
       providers: [provider('provider-a', acquired)],

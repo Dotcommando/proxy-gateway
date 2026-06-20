@@ -317,6 +317,7 @@ export enum PIPELINE_PHASE {
 }
 
 export enum PIPELINE_STEP_TYPE {
+  PLAN_FALLBACK = 'plan.fallback',
   PROVIDERS_EXCLUDE = 'providers.exclude',
   PROVIDERS_INCLUDE = 'providers.include',
   PROVIDERS_PRIORITY = 'providers.priority',

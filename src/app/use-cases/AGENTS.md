@@ -22,6 +22,8 @@ When `ProxyGatewayOptions.routes` or `defaultRoute` are configured, this use-cas
 
 When non-empty `ProxyGatewayOptions.pipelines` are configured, this use-case must execute them through `ProxyPipelineEngine` after target access and before route/default/direct planning. Pipeline steps must come from `ProxyPipelineStepRegistryPort`; missing steps return stable pipeline service errors. A selected pipeline plan is executable and goes to attempt execution without the no-plan provider fallback.
 
+Pipeline execution services may expose a planner service that wraps `ExecutionPlanner` and orders providers by current pipeline candidates. Do not expose provider-specific adapter config to built-in selection/ranking steps or reintroduce gateway-level provider selection outside configured plans.
+
 When a configured plan is selected from either `ProxyGatewayOptions.plan` or declarative route/default-route config, this use-case must resolve sticky-session read-path pins before obtaining the executable attempt plan from `ExecutionPlanner`. For route/default-route config, merge selected route/default requirements into the selected plan before session pinning so route-level identity defaults participate in sticky-session reads and writes. Session hits may constrain the first configured attempt to a provider instance, but `ExecutionPlanner` must still perform provider capability checks.
 
 There is no public `providerSelection.providerInstanceId` bridge. Explicit provider choice belongs in configured plans, route/default-route plans, or future pipeline output. The no-plan fallback may only select the first enabled provider when no `plan`, `routes`, `defaultRoute`, or non-empty `pipelines` are configured.

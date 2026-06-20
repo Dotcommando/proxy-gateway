@@ -11,14 +11,11 @@ import type {
   ProxyGeoRequirements,
   ProxyIdentityRequirements,
   ProxyPipelineStep,
-  ProxyPipelineStepRegistryPort,
   ProxyPipelineStepResult,
   ProxyRouteRequirements,
   ProxyVerificationRequirements,
 } from '../../ports/outbound';
 import { mergeProxyRouteRequirements } from '../planning';
-import { createBuiltInProviderSteps } from './built-in-provider-steps';
-import { ProxyPipelineStepRegistry } from './proxy-pipeline-step-registry';
 
 interface IParseSuccess<TValue> {
   ok: true;
@@ -30,39 +27,9 @@ interface IParseFailure {
   ok: false;
 }
 
-type ParseResult<TValue> = IParseFailure | IParseSuccess<TValue>;
+export type ParseResult<TValue> = IParseFailure | IParseSuccess<TValue>;
 
-class CompositePipelineStepRegistry implements ProxyPipelineStepRegistryPort {
-  constructor(
-    private readonly userRegistry: ProxyPipelineStepRegistryPort | undefined,
-    private readonly builtInRegistry: ProxyPipelineStepRegistryPort,
-  ) {}
-
-  get(type: string): ProxyPipelineStep | undefined {
-    return this.userRegistry?.get(type) ?? this.builtInRegistry.get(type);
-  }
-
-  register(step: ProxyPipelineStep): void {
-    if (this.userRegistry !== undefined) {
-      this.userRegistry.register(step);
-
-      return;
-    }
-
-    this.builtInRegistry.register(step);
-  }
-}
-
-export function createBuiltInPipelineStepRegistry(
-  userRegistry?: ProxyPipelineStepRegistryPort,
-): ProxyPipelineStepRegistryPort {
-  return new CompositePipelineStepRegistry(
-    userRegistry,
-    new ProxyPipelineStepRegistry([...createBuiltInRequirementSteps(), ...createBuiltInProviderSteps()]),
-  );
-}
-
-function createBuiltInRequirementSteps(): ProxyPipelineStep[] {
+export function createBuiltInRequirementSteps(): ProxyPipelineStep[] {
   return [
     createStep(PIPELINE_STEP_TYPE.REQUIREMENTS_SET, async (input) => {
       const parsed = parseRouteRequirements(input.args, PIPELINE_STEP_TYPE.REQUIREMENTS_SET);
@@ -142,7 +109,7 @@ function mergeRequiredRouteRequirements(
   return mergeProxyRouteRequirements(currentRequirements, nextRequirements) ?? nextRequirements;
 }
 
-function rejectInvalidArgs(message: string): ProxyPipelineStepResult {
+export function rejectInvalidArgs(message: string): ProxyPipelineStepResult {
   return {
     decision: {
       code: RESPONSE_CODE.PIPELINE_STEP_INVALID_ARGS,
@@ -153,7 +120,7 @@ function rejectInvalidArgs(message: string): ProxyPipelineStepResult {
   };
 }
 
-function parseRouteRequirements(
+export function parseRouteRequirements(
   args: Record<string, unknown>,
   stepType: PIPELINE_STEP_TYPE,
 ): ParseResult<ProxyRouteRequirements> {
@@ -376,7 +343,7 @@ function parseIdentityRequirements(
   });
 }
 
-function parseVerificationRequirements(
+export function parseVerificationRequirements(
   args: Record<string, unknown>,
   stepType: PIPELINE_STEP_TYPE,
 ): ParseResult<ProxyVerificationRequirements> {
@@ -619,7 +586,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isParseFailure<TValue>(result: ParseResult<TValue>): result is IParseFailure {
+export function isParseFailure<TValue>(result: ParseResult<TValue>): result is IParseFailure {
   return !result.ok;
 }
 

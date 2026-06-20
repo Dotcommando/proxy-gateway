@@ -20,6 +20,7 @@ import type {
   ProxyDecisionState,
   ProxyExecutionPlan,
   ProxyGatewayServices,
+  ProxyProviderCandidate,
   ProxyProviderInstance,
   ProxyRouteRequirements,
   ProxySessionRecord,
@@ -31,6 +32,7 @@ import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelope
 import { createBuiltInPipelineStepRegistry, ProxyPipelineEngine } from '../pipeline';
 import {
   ExecutionPlanner,
+  type ExecutionPlannerResult,
   mergeRouteRequirementsIntoPlan,
   type ProxyPlanAttemptConfig,
   type ProxyPlanConfig,
@@ -272,7 +274,15 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   }
 
   #createPipelineServices(): ProxyGatewayServices {
-    return this.#options.random === undefined ? {} : { random: this.#options.random };
+    return {
+      planner: {
+        plan: (input: {
+          candidates: ProxyProviderCandidate[];
+          plan: ProxyPlanConfig;
+        }) => this.#planExecutionConfig(input.plan, input.candidates),
+      },
+      ...(this.#options.random === undefined ? {} : { random: this.#options.random }),
+    };
   }
 
   async #planConfiguredRoute(
@@ -288,10 +298,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       return plan;
     }
 
-    const plannerResult = await new ExecutionPlanner({
-      exitVerifierAvailable: this.#options.exitVerifier !== undefined,
-      providers: this.#options.providers,
-    }).plan({ plan });
+    const plannerResult = await this.#planExecutionConfig(plan);
 
     if (plannerResult.kind === PLANNER_RESULT_KIND.REJECTED) {
       return this.#envelopeBuilder.buildServiceError(500, {
@@ -302,6 +309,16 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     }
 
     return plannerResult.plan;
+  }
+
+  #planExecutionConfig(
+    plan: ProxyPlanConfig,
+    candidates: ProxyProviderCandidate[] = [],
+  ): Promise<ExecutionPlannerResult> {
+    return new ExecutionPlanner({
+      exitVerifierAvailable: this.#options.exitVerifier !== undefined,
+      providers: orderProvidersForCandidates(this.#options.providers, candidates),
+    }).plan({ plan });
   }
 
   #usesDeclarativeRouting(): boolean {
@@ -498,6 +515,25 @@ function sortPipelines<TPipeline extends { priority?: number }>(pipelines: TPipe
       return priorityDelta === 0 ? left.index - right.index : priorityDelta;
     })
     .map(({ pipeline }) => pipeline);
+}
+
+function orderProvidersForCandidates(
+  providers: ProxyProviderInstance[],
+  candidates: ProxyProviderCandidate[],
+): ProxyProviderInstance[] {
+  if (candidates.length === 0) {
+    return providers;
+  }
+
+  const candidateIds = candidates.map((candidate) => candidate.providerInstanceId);
+  const candidateProviders = candidateIds.flatMap((candidateId) => {
+    const provider = providers.find((providerInstance) => providerInstance.id === candidateId);
+
+    return provider === undefined ? [] : [provider];
+  });
+  const remainingProviders = providers.filter((provider) => !candidateIds.includes(provider.id));
+
+  return [...candidateProviders, ...remainingProviders];
 }
 
 function attemptAcceptsSessionProvider(
