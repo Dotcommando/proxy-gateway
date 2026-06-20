@@ -12,7 +12,7 @@ import {
   ROUTE_SELECTION_RESULT_KIND,
   TARGET_ACCESS_RESULT_KIND,
 } from '../../constants';
-import { selectRoute } from '../../domain/routing';
+import { type RouteSelectionResult, selectRoute } from '../../domain/routing';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
   GatewayExecutionContext,
@@ -178,19 +178,31 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     requestId: string,
     signal: AbortSignal,
   ): Promise<ProxyExecutionPlan | Response> {
-    if (this.#usesConfiguredPipelines()) {
-      return this.#createPipelineExecutionPlan(target, context, requestId, signal);
-    }
-    if (this.#usesDeclarativeRouting()) {
-      const selectedRoute = selectRoute({
-        ...(this.#options.defaultRoute === undefined ? {} : { defaultRoute: this.#options.defaultRoute }),
-        routes: this.#options.routes ?? [],
-        target: {
-          method: target.method,
-          url: target.url,
-        },
-      });
+    const selectedRoute = this.#selectConfiguredRoute(target);
 
+    if (this.#usesConfiguredPipelines()) {
+      const pipelinePlan = await this.#createPipelineExecutionPlan(
+        target,
+        context,
+        requestId,
+        signal,
+        readSelectedRouteRequirements(selectedRoute),
+      );
+
+      if (pipelinePlan !== undefined) {
+        return pipelinePlan;
+      }
+    }
+    if (this.#usesConfiguredPipelines()) {
+      if (selectedRoute === undefined && this.#options.plan === undefined) {
+        return this.#envelopeBuilder.buildServiceError(500, {
+          code: RESPONSE_CODE.REJECTED_BY_POLICY,
+          message: 'No configured pipeline selected an execution plan.',
+          retryable: false,
+        });
+      }
+    }
+    if (selectedRoute !== undefined) {
       if (selectedRoute.kind === ROUTE_SELECTION_RESULT_KIND.NO_MATCH) {
         return this.#envelopeBuilder.buildServiceError(404, {
           code: selectedRoute.code,
@@ -224,13 +236,31 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     return createSingleAttemptPlan(providerSelection.provider);
   }
 
+  #selectConfiguredRoute(
+    target: GatewayTargetRequest,
+  ): RouteSelectionResult<ProxyPlanConfig, ProxyRouteRequirements> | undefined {
+    if (!this.#usesDeclarativeRouting()) {
+      return undefined;
+    }
+
+    return selectRoute({
+      ...(this.#options.defaultRoute === undefined ? {} : { defaultRoute: this.#options.defaultRoute }),
+      routes: this.#options.routes ?? [],
+      target: {
+        method: target.method,
+        url: target.url,
+      },
+    });
+  }
+
   async #createPipelineExecutionPlan(
     target: GatewayTargetRequest,
     context: GatewayExecutionContext,
     requestId: string,
     signal: AbortSignal,
-  ): Promise<ProxyExecutionPlan | Response> {
-    let state = createInitialPipelineState(target, context, this.#options.providers);
+    routeRequirements: ProxyRouteRequirements | undefined,
+  ): Promise<ProxyExecutionPlan | Response | undefined> {
+    let state = createInitialPipelineState(target, context, this.#options.providers, routeRequirements);
     const engine = new ProxyPipelineEngine(createBuiltInPipelineStepRegistry(this.#options.stepRegistry));
 
     for (const pipeline of sortPipelines(this.#options.pipelines ?? [])) {
@@ -266,11 +296,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       }
     }
 
-    return this.#envelopeBuilder.buildServiceError(500, {
-      code: RESPONSE_CODE.REJECTED_BY_POLICY,
-      message: 'No configured pipeline selected an execution plan.',
-      retryable: false,
-    });
+    return undefined;
   }
 
   #createPipelineServices(): ProxyGatewayServices {
@@ -477,6 +503,7 @@ function createInitialPipelineState(
   target: GatewayTargetRequest,
   context: GatewayExecutionContext,
   providers: ProxyProviderInstance[],
+  requirements: ProxyRouteRequirements | undefined,
 ): ProxyDecisionState {
   return {
     candidates: providers.flatMap((provider) => {
@@ -498,9 +525,15 @@ function createInitialPipelineState(
     context,
     facts: {},
     metadata: {},
-    requirements: {},
+    requirements: requirements ?? {},
     target,
   };
+}
+
+function readSelectedRouteRequirements(
+  selectedRoute: RouteSelectionResult<ProxyPlanConfig, ProxyRouteRequirements> | undefined,
+): ProxyRouteRequirements | undefined {
+  return selectedRoute?.kind === ROUTE_SELECTION_RESULT_KIND.NO_MATCH ? undefined : selectedRoute?.route.requirements;
 }
 
 function sortPipelines<TPipeline extends { priority?: number }>(pipelines: TPipeline[]): TPipeline[] {

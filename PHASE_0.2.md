@@ -618,7 +618,7 @@ Next three steps reassessment:
 - Step 19 is ready but can be narrowed: `plan.fallback` already accepts per-attempt `verification` args and passes them through requirements. Step 19 should focus on end-to-end verifier invocation, mismatch retry/fallback, and no-verifier rejection through route and pipeline paths.
 - Step 20 remains needed. Direct and route/default plans have session read/write helpers, but pipeline-selected executable plans currently do not apply session read-path pinning before planner execution; Step 20 should either add that or document a deliberate difference.
 
-## 18. Pipeline And Route Precedence
+## 18. Pipeline And Route Precedence - Completed
 
 Purpose:
 - Define how routes, default routes, and pipelines interact.
@@ -643,6 +643,17 @@ Green:
 Verify:
 - Route/pipeline precedence tests pass.
 - Existing route selection and pipeline engine tests still pass.
+
+Progress:
+- Chose and implemented precedence: route/default selection runs first to provide base requirements, pipeline plans have priority when selected, skipped/no-plan pipelines fall through to route/default or direct `options.plan`, and configured pipelines never fall through to the no-plan provider fallback.
+- Added route/pipeline precedence integration tests for route requirements constraining a pipeline-selected plan, pipeline rejection before route/default planning, default-route fallthrough after skipped pipelines, direct-plan fallthrough after skipped pipelines, and stable no-plan errors after skipped pipelines without route/default/direct plan.
+- Refactored `HandleProxyFetchRequestUseCase` into a single decision flow that selects route/default context once, passes route/default requirements into the initial pipeline state, and reuses the configured-plan path for fallthrough route/default/direct plans.
+- Checked nested AGENTS files and updated `src/app/use-cases/AGENTS.md` for the durable route/pipeline precedence rule.
+
+Next three steps reassessment:
+- Step 19 is ready. It should verify that route/default verification requirements and pipeline `plan.fallback` verification args both reach `ExecutionPlanner` and `AttemptExecutor`, including mismatch retry/fallback and no-verifier rejection.
+- Step 20 remains needed. The final precedence flow now gives route/default requirements to pipelines, but pipeline-selected executable plans still do not get sticky-session read-path pinning before planner execution; Step 20 should unify session behavior for route and pipeline declarative paths.
+- Step 21 remains ready. Its target-access tests should include the new precedence behavior: target access must still run before route selection, pipeline execution, session reads/writes, planner capability lookup, provider acquire, verifier, and transport.
 
 ## 19. Verification Flags Through Declarative Config
 
