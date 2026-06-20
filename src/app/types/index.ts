@@ -1,3 +1,5 @@
+import type { PROXY_NETWORK_TYPE } from '../../constants';
+import type { StringMatcher } from '../../domain';
 import type { ProxyProviderInstance, RandomPort, TargetTransportPort } from '../../ports/outbound';
 
 export interface BodyBufferingPolicy {
@@ -36,8 +38,13 @@ export interface TimeoutPolicy {
 }
 
 export interface TargetAccessPolicy {
+  allowedHosts?: StringMatcher[];
   allowLocalhost?: boolean;
-  allowOnionTargets?: boolean;
-  allowPrivateNetworks?: boolean;
+  allowOnionHosts?: boolean;
+  allowLinkLocalIps?: boolean;
+  allowPrivateIps?: boolean;
   allowedSchemes?: string[];
+  deniedCidrs?: string[];
+  deniedHosts?: StringMatcher[];
+  onionRequiresNetworkType?: PROXY_NETWORK_TYPE.TOR;
 }

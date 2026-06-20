@@ -1,10 +1,15 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { ProxyPipelineEngine, ProxyPipelineStepRegistry } from '../src/app/pipeline';
+import {
+  ProxyPipelineEngine,
+  ProxyPipelineStepRegistry,
+  ProxyPipelineStepRegistryError,
+} from '../src/app/pipeline';
 import {
   PIPELINE_DECISION_KIND,
   PIPELINE_PHASE,
   PIPELINE_RESULT_KIND,
+  PIPELINE_WHEN_NOT_MATCHED_REASON,
   PROXY_PLAN_KIND,
   RESPONSE_CODE,
 } from '../src/constants';
@@ -74,7 +79,55 @@ describe('ProxyPipelineEngine', () => {
     expect(PIPELINE_RESULT_KIND.PLAN_SELECTED).toBe('plan-selected');
     expect(PIPELINE_RESULT_KIND.SKIPPED).toBe('skipped');
     expect(PIPELINE_RESULT_KIND.STEP_NOT_FOUND).toBe('step-not-found');
+    expect(RESPONSE_CODE.PIPELINE_STEP_ALREADY_REGISTERED).toBe('PIPELINE_STEP_ALREADY_REGISTERED');
     expect(RESPONSE_CODE.PIPELINE_STEP_NOT_FOUND).toBe('PIPELINE_STEP_NOT_FOUND');
+  });
+
+  it('rejects duplicate step registrations without replacing the previous step', async () => {
+    const firstStep = createStep('duplicate', async () => ({
+      statePatch: {
+        metadata: {
+          selected: 'first',
+        },
+      },
+    }));
+    const secondStep = createStep('duplicate', async () => ({
+      statePatch: {
+        metadata: {
+          selected: 'second',
+        },
+      },
+    }));
+    const registry = new ProxyPipelineStepRegistry([firstStep]);
+    let error: unknown;
+
+    try {
+      registry.register(secondStep);
+    } catch (caughtError) {
+      error = caughtError;
+    }
+
+    expect(error).toBeInstanceOf(ProxyPipelineStepRegistryError);
+    expect(error).toMatchObject({
+      code: RESPONSE_CODE.PIPELINE_STEP_ALREADY_REGISTERED,
+      stepType: 'duplicate',
+    });
+
+    const result = await new ProxyPipelineEngine(registry).execute({
+      initialState: createState(),
+      pipeline: {
+        id: 'pipeline-a',
+        plan: [{ use: 'duplicate' }],
+      },
+      requestId: 'request-1',
+      services: {},
+      signal: new AbortController().signal,
+    });
+
+    expect(result.kind).toBe(PIPELINE_RESULT_KIND.COMPLETED);
+    expect(result.state.metadata).toMatchObject({
+      selected: 'first',
+    });
   });
 
   it('executes configured steps in pipeline phase order and passes execution input', async () => {
@@ -135,6 +188,67 @@ describe('ProxyPipelineEngine', () => {
       'plan:plan',
       'verify:verify',
     ]);
+  });
+
+  it('skips the whole pipeline when the declarative when prefilter does not match', async () => {
+    const registry = new ProxyPipelineStepRegistry([
+      createStep('plan-step', async () => {
+        throw new Error('pipeline steps should not run when prefilter does not match');
+      }),
+    ]);
+    const result = await new ProxyPipelineEngine(registry).execute({
+      initialState: createState(),
+      pipeline: {
+        id: 'pipeline-a',
+        plan: [{ use: 'plan-step' }],
+        when: {
+          host: 'other.example.com',
+        },
+      },
+      requestId: 'request-1',
+      services: {},
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({
+      events: [],
+      kind: PIPELINE_RESULT_KIND.SKIPPED,
+      reason: PIPELINE_WHEN_NOT_MATCHED_REASON,
+      state: createState(),
+    });
+  });
+
+  it('runs optional match phase steps after a matching declarative when prefilter', async () => {
+    const executed: string[] = [];
+    const registry = new ProxyPipelineStepRegistry([
+      createStep('match-step', async () => {
+        executed.push('match');
+
+        return {};
+      }),
+      createStep('plan-step', async () => {
+        executed.push('plan');
+
+        return {};
+      }),
+    ]);
+    const result = await new ProxyPipelineEngine(registry).execute({
+      initialState: createState(),
+      pipeline: {
+        id: 'pipeline-a',
+        match: [{ use: 'match-step' }],
+        plan: [{ use: 'plan-step' }],
+        when: {
+          host: 'api.example.com',
+        },
+      },
+      requestId: 'request-1',
+      services: {},
+      signal: new AbortController().signal,
+    });
+
+    expect(result.kind).toBe(PIPELINE_RESULT_KIND.COMPLETED);
+    expect(executed).toEqual(['match', 'plan']);
   });
 
   it('merges state patches into later steps without mutating previous state', async () => {

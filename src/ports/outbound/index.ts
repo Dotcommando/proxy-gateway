@@ -10,6 +10,7 @@ import {
   PROXY_ROUTE_KIND,
   RETRY_CONDITION,
 } from '../../constants';
+import type { ProxyRouteMatch } from '../../domain/routing';
 
 export interface GatewayExecutionContext {
   tenantId?: string;
@@ -153,6 +154,8 @@ export interface ProxyPipelineStepConfig {
   use: string;
 }
 
+export type ProxyCondition = ProxyRouteMatch;
+
 export interface ProxyPipelineConfig {
   enrich?: ProxyPipelineStepConfig[];
   id: string;
@@ -163,6 +166,7 @@ export interface ProxyPipelineConfig {
   require?: ProxyPipelineStepConfig[];
   select?: ProxyPipelineStepConfig[];
   verify?: ProxyPipelineStepConfig[];
+  when?: ProxyCondition;
 }
 
 export type ProxyPipelineDecision =
@@ -209,6 +213,7 @@ export interface ProxyPipelineStep {
 
 export interface ProxyPipelineStepRegistryPort {
   get(type: string): ProxyPipelineStep | undefined;
+  register(step: ProxyPipelineStep): void;
 }
 
 export interface GatewayTargetResponse {

@@ -1,13 +1,20 @@
 import {
   DEFAULT_ALLOWED_TARGET_SCHEMES,
-  DENIED_IPV4_CIDR_RANGES,
-  DENIED_IPV6_CIDR_RANGES,
   type IpCidrRange,
+  LINK_LOCAL_IPV4_CIDR_RANGES,
+  LINK_LOCAL_IPV6_CIDR_RANGES,
+  LOOPBACK_IPV4_CIDR_RANGES,
+  LOOPBACK_IPV6_CIDR_RANGES,
+  PRIVATE_IPV4_CIDR_RANGES,
+  PRIVATE_IPV6_CIDR_RANGES,
+  RESERVED_IPV4_CIDR_RANGES,
+  RESERVED_IPV6_CIDR_RANGES,
   RESPONSE_CODE,
   TARGET_ACCESS_DENIED_MESSAGE,
   TARGET_ACCESS_REJECTION_REASON,
   TARGET_ACCESS_RESULT_KIND,
 } from '../../constants';
+import { matchHost } from '../../domain';
 import type { GatewayFacts, GatewayTargetRequest } from '../../ports/outbound';
 import type { TargetAccessPolicy } from '../types';
 
@@ -43,8 +50,10 @@ export class TargetAccessGuard {
     }
 
     for (const resolvedIp of input.facts?.target?.resolvedIps ?? []) {
-      if (isDeniedIpAddress(resolvedIp)) {
-        return rejected(TARGET_ACCESS_REJECTION_REASON.RESOLVED_PRIVATE_IP_RANGE);
+      const resolvedResult = this.#checkIpAddress(resolvedIp, true);
+
+      if (resolvedResult.kind === TARGET_ACCESS_RESULT_KIND.REJECTED) {
+        return resolvedResult;
       }
     }
 
@@ -77,15 +86,22 @@ export class TargetAccessGuard {
     }
 
     const hostname = normalizeHostname(parsedUrl.hostname);
+    const ipResult = this.#checkIpAddress(hostname, false);
 
-    if (!this.#policy.allowOnionTargets && hostname.endsWith('.onion')) {
+    if (ipResult.kind === TARGET_ACCESS_RESULT_KIND.REJECTED) {
+      return ipResult;
+    }
+    if (this.#isDeniedHost(hostname)) {
+      return rejected(TARGET_ACCESS_REJECTION_REASON.DENIED_HOST);
+    }
+    if (this.#hasAllowedHosts() && !this.#isAllowedHost(hostname)) {
+      return rejected(TARGET_ACCESS_REJECTION_REASON.HOST_NOT_ALLOWED);
+    }
+    if (!this.#policy.allowOnionHosts && hostname.endsWith('.onion')) {
       return rejected(TARGET_ACCESS_REJECTION_REASON.ONION_NOT_ALLOWED);
     }
     if (!this.#policy.allowLocalhost && isLocalHostname(hostname)) {
       return rejected(TARGET_ACCESS_REJECTION_REASON.LOCAL_HOSTNAME);
-    }
-    if (!this.#policy.allowPrivateNetworks && isDeniedIpAddress(hostname)) {
-      return rejected(TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE);
     }
 
     return allowed();
@@ -93,6 +109,45 @@ export class TargetAccessGuard {
 
   #allowedSchemes(): readonly string[] {
     return this.#policy.allowedSchemes ?? DEFAULT_ALLOWED_TARGET_SCHEMES;
+  }
+
+  #checkIpAddress(value: string, resolved: boolean): TargetAccessResult {
+    if (this.#isDeniedByCustomCidr(value)) {
+      return rejected(TARGET_ACCESS_REJECTION_REASON.DENIED_CIDR_RANGE);
+    }
+
+    const classification = classifyDeniedIpAddress(value);
+
+    if (classification === undefined) {
+      return allowed();
+    }
+    if (classification === TARGET_IP_RANGE_KIND.LOOPBACK && this.#policy.allowLocalhost === true) {
+      return allowed();
+    }
+    if (classification === TARGET_IP_RANGE_KIND.PRIVATE && this.#policy.allowPrivateIps === true) {
+      return allowed();
+    }
+    if (classification === TARGET_IP_RANGE_KIND.LINK_LOCAL && this.#policy.allowLinkLocalIps === true) {
+      return allowed();
+    }
+
+    return rejected(rejectionReasonForIpRange(classification, resolved));
+  }
+
+  #hasAllowedHosts(): boolean {
+    return (this.#policy.allowedHosts?.length ?? 0) > 0;
+  }
+
+  #isAllowedHost(hostname: string): boolean {
+    return this.#policy.allowedHosts?.some((matcher) => matchHost(matcher, hostname)) ?? true;
+  }
+
+  #isDeniedHost(hostname: string): boolean {
+    return this.#policy.deniedHosts?.some((matcher) => matchHost(matcher, hostname)) ?? false;
+  }
+
+  #isDeniedByCustomCidr(value: string): boolean {
+    return this.#policy.deniedCidrs?.some((cidr) => ipAddressInCidr(value, cidr)) ?? false;
   }
 }
 
@@ -124,28 +179,134 @@ function isLocalHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost');
 }
 
-function isDeniedIpAddress(value: string): boolean {
-  return isDeniedIpv4Address(value) || isDeniedIpv6Address(value);
+enum TARGET_IP_RANGE_KIND {
+  LINK_LOCAL = 'link-local',
+  LOOPBACK = 'loopback',
+  PRIVATE = 'private',
+  RESERVED = 'reserved',
 }
 
-function isDeniedIpv4Address(value: string): boolean {
+function classifyDeniedIpAddress(value: string): TARGET_IP_RANGE_KIND | undefined {
+  return classifyDeniedIpv4Address(value) ?? classifyDeniedIpv6Address(value);
+}
+
+function classifyDeniedIpv4Address(value: string): TARGET_IP_RANGE_KIND | undefined {
   const address = parseIpv4Address(value);
 
   if (address === undefined) {
-    return false;
+    return undefined;
+  }
+  if (LOOPBACK_IPV4_CIDR_RANGES.some((range) => ipv4AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.LOOPBACK;
+  }
+  if (PRIVATE_IPV4_CIDR_RANGES.some((range) => ipv4AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.PRIVATE;
+  }
+  if (LINK_LOCAL_IPV4_CIDR_RANGES.some((range) => ipv4AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.LINK_LOCAL;
+  }
+  if (RESERVED_IPV4_CIDR_RANGES.some((range) => ipv4AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.RESERVED;
   }
 
-  return DENIED_IPV4_CIDR_RANGES.some((range) => ipv4AddressInRange(address, range));
+  return undefined;
 }
 
-function isDeniedIpv6Address(value: string): boolean {
+function classifyDeniedIpv6Address(value: string): TARGET_IP_RANGE_KIND | undefined {
   const address = parseIpv6Address(value);
 
   if (address === undefined) {
-    return false;
+    return undefined;
+  }
+  if (LOOPBACK_IPV6_CIDR_RANGES.some((range) => ipv6AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.LOOPBACK;
+  }
+  if (PRIVATE_IPV6_CIDR_RANGES.some((range) => ipv6AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.PRIVATE;
+  }
+  if (LINK_LOCAL_IPV6_CIDR_RANGES.some((range) => ipv6AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.LINK_LOCAL;
+  }
+  if (RESERVED_IPV6_CIDR_RANGES.some((range) => ipv6AddressInRange(address, range))) {
+    return TARGET_IP_RANGE_KIND.RESERVED;
   }
 
-  return DENIED_IPV6_CIDR_RANGES.some((range) => ipv6AddressInRange(address, range));
+  return undefined;
+}
+
+function rejectionReasonForIpRange(
+  kind: TARGET_IP_RANGE_KIND,
+  resolved: boolean,
+): TARGET_ACCESS_REJECTION_REASON {
+  if (kind === TARGET_IP_RANGE_KIND.LOOPBACK) {
+    return TARGET_ACCESS_REJECTION_REASON.LOCAL_HOSTNAME;
+  }
+  if (kind === TARGET_IP_RANGE_KIND.PRIVATE) {
+    return resolved
+      ? TARGET_ACCESS_REJECTION_REASON.RESOLVED_PRIVATE_IP_RANGE
+      : TARGET_ACCESS_REJECTION_REASON.PRIVATE_IP_RANGE;
+  }
+  if (kind === TARGET_IP_RANGE_KIND.LINK_LOCAL) {
+    return resolved
+      ? TARGET_ACCESS_REJECTION_REASON.RESOLVED_LINK_LOCAL_IP_RANGE
+      : TARGET_ACCESS_REJECTION_REASON.LINK_LOCAL_IP_RANGE;
+  }
+
+  return resolved
+    ? TARGET_ACCESS_REJECTION_REASON.RESOLVED_RESERVED_IP_RANGE
+    : TARGET_ACCESS_REJECTION_REASON.RESERVED_IP_RANGE;
+}
+
+function ipAddressInCidr(value: string, cidr: string): boolean {
+  return ipv4AddressInCidr(value, cidr) || ipv6AddressInCidr(value, cidr);
+}
+
+function ipv4AddressInCidr(value: string, cidr: string): boolean {
+  const address = parseIpv4Address(value);
+  const range = parseIpv4CidrRange(cidr);
+
+  return address !== undefined && range !== undefined && ipv4AddressInRange(address, range);
+}
+
+function ipv6AddressInCidr(value: string, cidr: string): boolean {
+  const address = parseIpv6Address(value);
+  const range = parseIpv6CidrRange(cidr);
+
+  return address !== undefined && range !== undefined && ipv6AddressInRange(address, range);
+}
+
+function parseIpv4CidrRange(cidr: string): IpCidrRange | undefined {
+  const [base, rawPrefixLength] = cidr.split('/');
+  const prefixLength = rawPrefixLength === undefined ? 32 : Number(rawPrefixLength);
+
+  if (base === undefined || parseIpv4Address(base) === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 32) {
+    return undefined;
+  }
+
+  return {
+    base,
+    prefixLength,
+  };
+}
+
+function parseIpv6CidrRange(cidr: string): IpCidrRange | undefined {
+  const [base, rawPrefixLength] = cidr.split('/');
+  const prefixLength = rawPrefixLength === undefined ? 128 : Number(rawPrefixLength);
+
+  if (base === undefined || parseIpv6Address(base) === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 128) {
+    return undefined;
+  }
+
+  return {
+    base,
+    prefixLength,
+  };
 }
 
 function parseIpv4Address(value: string): number | undefined {

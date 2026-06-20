@@ -308,8 +308,9 @@ Most applications can use declarative pipelines. A pipeline matches a target req
 export interface ProxyPipelineConfig {
   id: string;
   priority?: number;
-  when: ProxyCondition;
+  when?: ProxyCondition;
 
+  match?: ProxyPipelineStepConfig[];
   enrich?: ProxyPipelineStepConfig[];
   require?: ProxyPipelineStepConfig[];
   select?: ProxyPipelineStepConfig[];
@@ -323,6 +324,8 @@ export interface ProxyPipelineStepConfig {
   args?: Record<string, unknown>;
 }
 ```
+
+`when` is a declarative prefilter. If it is absent, the pipeline applies. `match` is an optional programmable phase that runs only after `when` matches.
 
 Example:
 
@@ -476,13 +479,15 @@ export interface TargetAccessPolicy {
   allowLocalhost?: boolean;
   allowPrivateIps?: boolean;
   allowLinkLocalIps?: boolean;
+  allowOnionHosts?: boolean;
+  onionRequiresNetworkType?: PROXY_NETWORK_TYPE.TOR;
   allowedHosts?: HostMatcher[];
   deniedHosts?: HostMatcher[];
   deniedCidrs?: string[];
 }
 ```
 
-Default policy should allow only `http:` and `https:` targets and deny localhost, private, and link-local targets. Redirect targets must be checked too.
+Default policy should allow only `http:` and `https:` targets and deny localhost, private, link-local, and `.onion` targets. Redirect targets must be checked too.
 
 Configure explicit allow rules only for trusted internal deployments and tests.
 

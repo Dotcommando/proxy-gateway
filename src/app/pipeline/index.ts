@@ -6,4 +6,7 @@ export {
   applyProxyDecisionStatePatch,
   ProxyPipelineEngine,
 } from './proxy-pipeline-engine';
-export { ProxyPipelineStepRegistry } from './proxy-pipeline-step-registry';
+export {
+  ProxyPipelineStepRegistry,
+  ProxyPipelineStepRegistryError,
+} from './proxy-pipeline-step-registry';

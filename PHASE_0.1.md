@@ -692,7 +692,15 @@ Verify:
 - Direct-flow denied-target smoke test passes.
 - Existing service envelope, direct execution, and provider adapter tests still pass.
 
-## 17. Public Contract Alignment and Registry Guardrails
+## 17. Public Contract Alignment and Registry Guardrails - Done
+
+Implemented:
+- Target access public fields were aligned on `allowPrivateIps`, `allowLinkLocalIps`, `allowOnionHosts`, `onionRequiresNetworkType`, `allowedHosts`, `deniedHosts`, and `deniedCidrs`.
+- Legacy `allowPrivateNetworks` and `allowOnionTargets` policy aliases were removed before v0.1 publication.
+- Literal target IP hosts and already-provided resolved IP facts now use the same private/link-local allow semantics.
+- `when` is implemented as an optional declarative pipeline prefilter, while `match` remains an optional programmable phase that runs only after `when` matches.
+- Duplicate `ProxyPipelineStepRegistry.register()` calls now throw a stable `PIPELINE_STEP_ALREADY_REGISTERED` code and do not replace the existing step.
+- README and AGENTS were updated to match the implemented public names.
 
 Detailed scope:
 - This step prevents public API drift before redaction, multipart support, and the full gateway flow lock the v0.1 surface.
@@ -772,8 +780,12 @@ Detailed scope:
 - Redact raw target URLs before they appear in service-error details, classifier diagnostics, events, logs, or telemetry helpers.
 - Do not expose query-string secrets through `target.url`, redirect URLs, final URLs, route metadata, provider metadata, or nested diagnostic objects.
 - Keep behavior dependency-free and deterministic.
+- Add a narrow `RedactionPolicy` app-layer type only if tests need configuration. Keep default redaction usable without configuration.
+- Store default sensitive header/query/metadata key lists as package constants when reused across modules.
+- Keep route diagnostics structurally useful: route kind, protocol, host, port, DNS mode, and auth mode may remain visible; credential values must not.
 - Apply redaction at service-error diagnostic boundaries that already exist. Full logger/telemetry emission can remain later if ports are not wired yet.
 - Avoid changing successful target response envelopes in this step. Redaction is for diagnostics/errors/events, not target response body/header mutation.
+- If an existing boundary does not yet carry diagnostics, do not invent a large event/logging system in this step; add reusable redaction helpers and wire only current service-error/classifier boundaries.
 
 Red:
 - Add tests that redaction constants/enums are used instead of inline placeholder strings.
@@ -785,11 +797,13 @@ Red:
 - Add tests proving classifier diagnostics do not expose raw `target.url` when the URL contains `api_key`, `token`, `password`, `secret`, or `access_token` query parameters.
 - Add tests proving redirect/final URL diagnostics from target access checks are redacted before reaching service errors or events.
 - Add tests that successful target response headers/bodies are not redacted or mutated by this service.
+- Add tests proving redaction is idempotent and does not double-wrap an already redacted value.
 
 Green:
 - Implement `RedactionService`.
 - Move any step-13 local redaction constants into the shared redaction module/constants where appropriate.
 - Add URL redaction helpers that preserve scheme, host, path, and non-sensitive query parameters while replacing sensitive query values.
+- Add header, URL, route diagnostic, and nested metadata redaction entry points. Keep them small and explicit instead of one broad magic sanitizer.
 - Apply `RedactionService` at service-error, event, and diagnostic boundaries that exist today.
 - Keep logger/telemetry integration scoped to helpers if concrete logger/telemetry ports are not wired yet.
 
@@ -813,6 +827,10 @@ Detailed scope:
 - Keep multipart response building out of this step; it is step 20.
 - Use constants for part names, content-type prefixes, CRLF-related parser strings where shared, and stable multipart parser errors.
 - Tests should use byte-level assertions for binary round trips and boundary preservation.
+- Implement only the `@echospecter/proxy-fetch` two-part service shape for v0.1. Do not attempt to support arbitrary browser multipart semantics, nested multipart bodies, repeated field names, or file metadata beyond the required `meta` and `body` parts.
+- Parser dispatch must be based on `Content-Type`: JSON stays on the existing JSON parser path; `multipart/form-data` uses the multipart parser; unsupported content types become stable invalid-request errors.
+- The parser may collect multipart bytes up to configured limits in v0.1, but the limit must be enforced while reading. Do not read unbounded request bodies and only then check the size.
+- Streaming multipart compatibility means accepting the shape emitted by proxy-fetch for `ReadableStream` uploads. The gateway may still normalize to buffered bytes when within body limits until full streaming execution is introduced.
 
 Red:
 - Add multipart request tests for `meta` JSON part, raw binary `body` part, missing required parts, byte-preserving binary round trip, and body-size enforcement.
@@ -823,12 +841,15 @@ Red:
 - Add tests that multipart parsing does not require buffering the entire incoming service request before body-limit policy is applied.
 - Reuse the exact `request.body.kind: "binary"` / `response.body.kind: "binary"` meta shape from the `@echospecter/proxy-fetch` wire contract.
 - Add regression tests proving JSON text/null/base64 requests still parse unchanged after multipart parser dispatch is introduced.
+- Add tests for unsupported content types and malformed multipart boundaries returning stable invalid-request service errors.
+- Add tests that extra unknown multipart parts are ignored or rejected according to one explicit v0.1 rule; prefer rejecting malformed/unexpected structure unless compatibility requires otherwise.
 
 Green:
 - Implement multipart parsing for the service contract.
 - Reuse body buffering decisions for multipart binary content.
 - Add parser dispatch by `Content-Type` without framework/body-parser dependencies.
 - Keep parser errors stable and classified as invalid proxy-fetch requests.
+- Keep multipart parser helpers private to `src/app/envelopes` unless a later wrapper contract needs them.
 
 Verify:
 - Multipart request parser tests pass.
@@ -847,6 +868,9 @@ Detailed scope:
 - Do not introduce response streaming policy broader than the current body buffering policy unless tests require it.
 - Use package constants for part names, content-type prefixes, CRLF, binary content type, and stable multipart builder errors.
 - Ensure body-related headers cannot become stale after service-envelope or multipart body transformation.
+- Make the response format decision explicit. For v0.1, prefer multipart for binary response bodies when the service request `Accept` header allows `multipart/form-data`; otherwise use JSON base64 fallback for binary bodies.
+- Preserve current JSON response behavior for text, null, service errors, and special response types unless a test proves multipart is required for that shape.
+- Keep request multipart parsing and response multipart building as separate components even if they share small constants.
 
 Red:
 - Add multipart response builder tests for meta/body output.
@@ -856,56 +880,53 @@ Red:
 - Add tests that stale `content-length` from a target response is removed or recalculated when the service response body is transformed.
 - Add tests that stale body-related headers from JSON/base64/multipart transformations do not corrupt reconstructed proxy-fetch responses.
 - Add regression tests proving existing JSON response builder behavior remains unchanged.
+- Add tests for response format selection from `Accept: application/json, multipart/form-data`, JSON-only accept, missing accept, and unsupported accept values.
+- Add tests that service-error envelopes remain JSON and do not use multipart.
 
 Green:
 - Implement multipart response building.
 - Reuse `ProxyFetchJsonEnvelopeBuilder` metadata serialization where possible instead of duplicating response envelope rules.
 - Normalize or remove stale body-related headers when building service responses.
 - Keep multipart response building explicit until response content negotiation/streaming policy is wired.
+- Add a small response-format selector rather than scattering `Accept` parsing through builders or use-cases.
 
 Verify:
 - Multipart response builder tests pass.
 - Existing JSON response builder tests pass.
 
-## 21. Geo Requirements and Exit Verification Contract Smoke
+## 21. Geo Requirements Planning Contract Smoke
 
 Detailed scope:
 - Keep this as a v0.1 contract-smoke step, not a real GeoIP, DNS, Tor, or probe-target implementation.
 - The core must not ship GeoIP databases, call external IP services, perform DNS intelligence, or know provider-specific geo syntax.
-- Add only the minimum planning and verification behavior needed to prevent strict geo requirements from being silently ignored.
+- Add only the minimum planning behavior needed to prevent strict geo requirements from being silently ignored.
 - Reuse provider capability contracts already introduced for `geo.mode`, `countries`, and `countrySelection`.
-- Reuse `ProxyExitVerifierPort` as an outbound port implemented by tests, user applications, or later companion packages.
+- Define or export `ProxyExitVerifierPort` if the contract is missing, but do not execute verifier calls in this step. Lease-based verification is part of step 22, after `AttemptExecutor` exists.
 - Supported v0.1 behavior:
   - `geo.mode: "guaranteed"` may satisfy required country during planning when countries match or countries are `"*"`;
   - `geo.mode: "unsupported"` must be skipped or rejected for required geo requirements;
   - `geo.mode: "best-effort"` must not satisfy strict required geo unless policy explicitly accepts best-effort;
-  - `geo.mode: "verified-after-acquire"` requires exit verification when strict geo or `verifyExit` is requested;
-  - verification mismatch is classified as `PROXY_GEO_MISMATCH` or `EXIT_VERIFICATION_FAILED` using existing enums.
+  - `geo.mode: "verified-after-acquire"` may remain plannable only when the plan marks exit verification as required for the attempt;
+  - verification mismatch classification remains step 22 because it requires an acquired lease and attempt signal.
 - `.onion` route capability checks stay provider/transport capability work; target access policy only decides whether the target is allowed at all.
-- Verification requests must use the acquired lease/route and the active attempt `AbortSignal`.
-- Verification diagnostics must go through `RedactionService` once step 18 is complete.
+- This step must not call provider `acquire()`, target transport, verifier ports, DNS, GeoIP, or HTTP probe endpoints.
 
 Red:
 - Add planner tests that a provider with `geo.mode: "unsupported"` does not satisfy `geo.strictness: "required"`.
 - Add planner tests that a provider with `geo.mode: "guaranteed"` and matching country can satisfy required geo without calling a verifier.
-- Add planner tests that a provider with `geo.mode: "verified-after-acquire"` remains plannable only when a verifier is available or verification is optional by policy.
-- Add tests that strict country mismatch from the verifier produces `PROXY_GEO_MISMATCH` and can be retried only when retry policy allows `RETRY_CONDITION.PROXY_GEO_MISMATCH`.
-- Add tests that verifier failure without trustworthy result produces `EXIT_VERIFICATION_FAILED`.
+- Add planner tests that a provider with `geo.mode: "verified-after-acquire"` produces an attempt requiring verification when strict geo or `verifyExit` requires it.
+- Add planner tests that `verified-after-acquire` providers are rejected when strict verification is required but no verifier contract/configuration exists.
+- Add tests that generated attempts preserve expected geo requirements for later verification.
 - Add tests proving the core does not perform DNS resolution, GeoIP lookup, HTTP probe calls, or provider-specific geo syntax translation in this step.
-- Add tests that verification receives the active attempt `AbortSignal`.
-- Add tests that verification-sensitive diagnostics are redacted.
 
 Green:
 - Extend `ExecutionPlanner` only enough to account for `geo` capability compatibility.
-- Add or finalize `ProxyExitVerifierPort` contracts if they are not exported yet.
-- Add a mock verifier for tests.
-- Add verification coordination hooks to the attempt execution path only where necessary for smoke coverage.
-- Map geo mismatch and verification failure through the existing classifier/retry taxonomy.
+- Add or finalize `ProxyExitVerifierPort` and verification requirement contracts if they are not exported yet.
+- Add planning metadata/attempt fields for later verification without executing verification in the planner.
 - Keep real probe target, HTTP verifier, Tor providers, and GeoIP integrations out of the core package.
 
 Verify:
 - Geo capability planning tests pass.
-- Mock exit verification tests pass.
 - Existing planner, retry, timeout, target access, and redaction tests still pass.
 
 ## 22. Attempt Executor and Retry Loop
@@ -922,6 +943,7 @@ Detailed scope:
   - result classifier;
   - retry decider;
   - redaction helpers for diagnostics.
+- It owns lease-based exit verification coordination when an attempt produced by the planner requires verification.
 - It must not parse proxy-fetch envelopes, perform route matching, load config, perform DNS/GeoIP intelligence, or build service responses.
 - Provider `release()` remains best-effort and must not mask the final target response or service error.
 - Retry and fallback must be driven only by `RetryDecider`, not by ad hoc checks in the use-case.
@@ -929,6 +951,8 @@ Detailed scope:
 - Per-attempt timeout may continue to later attempts only when the classified outcome and retry policy allow it.
 - Unsafe or non-replayable requests must not be retried even when the plan contains fallback attempts.
 - Response streaming already started must prevent retry/fallback.
+- Exit verification requests must use the acquired lease/route and the active attempt `AbortSignal`.
+- Verification diagnostics must go through `RedactionService`.
 
 Red:
 - Add tests for executing a planned fallback chain in declared order.
@@ -942,6 +966,12 @@ Red:
 - Add tests that per-attempt timeout may fallback only when retry policy allows it.
 - Add tests that proxy auth error skips same-provider retry and may fallback to another provider when policy allows it.
 - Add tests that response-stream-already-started prevents retry/fallback.
+- Add tests that an attempt requiring exit verification calls `ProxyExitVerifierPort` after acquire and before target transport execution.
+- Add tests that verification receives request id, lease, route, expected geo requirements, and the active attempt `AbortSignal`.
+- Add tests that strict country mismatch from the verifier produces `PROXY_GEO_MISMATCH` and can be retried only when retry policy allows `RETRY_CONDITION.PROXY_GEO_MISMATCH`.
+- Add tests that verifier failure without trustworthy result produces `EXIT_VERIFICATION_FAILED`.
+- Add tests that target transport is not executed after verification rejection.
+- Add tests that verification-sensitive diagnostics are redacted.
 
 Green:
 - Implement `AttemptExecutor`.
@@ -949,10 +979,12 @@ Green:
 - Return a final target response or classified service-level failure suitable for envelope building.
 - Keep all retry/fallback decisions delegated to `RetryDecider`.
 - Keep all raw error classification delegated to `ResultClassifier`.
+- Keep real HTTP probe/verifier implementations outside the core package; tests should use a mock verifier port.
 
 Verify:
 - Attempt executor tests pass.
-- Existing direct execution hardening, timeout, retry, classifier, planner, and target access tests still pass.
+- Mock exit verification tests pass.
+- Existing direct execution hardening, timeout, retry, classifier, planner, target access, and redaction tests still pass.
 
 ## 23. Full Direct-Route Gateway Flow
 

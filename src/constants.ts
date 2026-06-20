@@ -64,6 +64,8 @@ export const REQUEST_ABORTED_MESSAGE = 'Request was aborted.';
 
 export const TARGET_ACCESS_DENIED_MESSAGE = 'Target access is denied by gateway policy.';
 
+export const PIPELINE_WHEN_NOT_MATCHED_REASON = 'pipeline-when-not-matched';
+
 export const DEFAULT_ALLOWED_TARGET_SCHEMES = ['http:', 'https:'] as const;
 
 export interface IpCidrRange {
@@ -71,24 +73,56 @@ export interface IpCidrRange {
   prefixLength: number;
 }
 
-export const DENIED_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
+export const LOOPBACK_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: '0.0.0.0', prefixLength: 8 },
+  { base: '127.0.0.0', prefixLength: 8 },
+] as const;
+
+export const PRIVATE_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: '10.0.0.0', prefixLength: 8 },
   { base: '100.64.0.0', prefixLength: 10 },
-  { base: '127.0.0.0', prefixLength: 8 },
-  { base: '169.254.0.0', prefixLength: 16 },
   { base: '172.16.0.0', prefixLength: 12 },
   { base: '192.168.0.0', prefixLength: 16 },
+] as const;
+
+export const LINK_LOCAL_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
+  { base: '169.254.0.0', prefixLength: 16 },
+] as const;
+
+export const RESERVED_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: '224.0.0.0', prefixLength: 4 },
   { base: '240.0.0.0', prefixLength: 4 },
 ] as const;
 
-export const DENIED_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
+export const DENIED_IPV4_CIDR_RANGES: readonly IpCidrRange[] = [
+  ...LOOPBACK_IPV4_CIDR_RANGES,
+  ...PRIVATE_IPV4_CIDR_RANGES,
+  ...LINK_LOCAL_IPV4_CIDR_RANGES,
+  ...RESERVED_IPV4_CIDR_RANGES,
+] as const;
+
+export const LOOPBACK_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: '::', prefixLength: 128 },
   { base: '::1', prefixLength: 128 },
+] as const;
+
+export const PRIVATE_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: 'fc00::', prefixLength: 7 },
+] as const;
+
+export const LINK_LOCAL_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: 'fe80::', prefixLength: 10 },
+] as const;
+
+export const RESERVED_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
   { base: 'ff00::', prefixLength: 8 },
+] as const;
+
+export const DENIED_IPV6_CIDR_RANGES: readonly IpCidrRange[] = [
+  ...LOOPBACK_IPV6_CIDR_RANGES,
+  ...PRIVATE_IPV6_CIDR_RANGES,
+  ...LINK_LOCAL_IPV6_CIDR_RANGES,
+  ...RESERVED_IPV6_CIDR_RANGES,
 ] as const;
 
 export enum RESPONSE_CODE {
@@ -98,6 +132,7 @@ export enum RESPONSE_CODE {
   NO_PROVIDER_AVAILABLE = 'NO_PROVIDER_AVAILABLE',
   NO_PLANNABLE_PROVIDER = 'NO_PLANNABLE_PROVIDER',
   NO_ROUTE_MATCHED = 'NO_ROUTE_MATCHED',
+  PIPELINE_STEP_ALREADY_REGISTERED = 'PIPELINE_STEP_ALREADY_REGISTERED',
   PIPELINE_STEP_NOT_FOUND = 'PIPELINE_STEP_NOT_FOUND',
   PROXY_AUTH_ERROR = 'PROXY_AUTH_ERROR',
   PROXY_CONNECTION_ERROR = 'PROXY_CONNECTION_ERROR',
@@ -190,11 +225,18 @@ export enum TARGET_ACCESS_RESULT_KIND {
 }
 
 export enum TARGET_ACCESS_REJECTION_REASON {
+  DENIED_CIDR_RANGE = 'denied-cidr-range',
+  DENIED_HOST = 'denied-host',
+  HOST_NOT_ALLOWED = 'host-not-allowed',
   INVALID_URL = 'invalid-url',
+  LINK_LOCAL_IP_RANGE = 'link-local-ip-range',
   LOCAL_HOSTNAME = 'local-hostname',
   ONION_NOT_ALLOWED = 'onion-not-allowed',
   PRIVATE_IP_RANGE = 'private-ip-range',
+  RESERVED_IP_RANGE = 'reserved-ip-range',
+  RESOLVED_LINK_LOCAL_IP_RANGE = 'resolved-link-local-ip-range',
   RESOLVED_PRIVATE_IP_RANGE = 'resolved-private-ip-range',
+  RESOLVED_RESERVED_IP_RANGE = 'resolved-reserved-ip-range',
   UNSUPPORTED_SCHEME = 'unsupported-scheme',
 }
 

@@ -2,8 +2,10 @@ import {
   PIPELINE_DECISION_KIND,
   PIPELINE_PHASE,
   PIPELINE_RESULT_KIND,
+  PIPELINE_WHEN_NOT_MATCHED_REASON,
   RESPONSE_CODE,
 } from '../../constants';
+import { matchesRoute } from '../../domain/routing';
 import type {
   GatewayEvent,
   ProxyDecisionState,
@@ -73,6 +75,15 @@ export class ProxyPipelineEngine {
   async execute(input: ProxyPipelineEngineInput): Promise<ProxyPipelineEngineResult> {
     let state = input.initialState;
     const events: GatewayEvent[] = [];
+
+    if (input.pipeline.when !== undefined && !matchesRoute(input.pipeline.when, state.target)) {
+      return {
+        events,
+        kind: PIPELINE_RESULT_KIND.SKIPPED,
+        reason: PIPELINE_WHEN_NOT_MATCHED_REASON,
+        state,
+      };
+    }
 
     for (const phase of PIPELINE_PHASE_ORDER) {
       const stepConfigs = getPhaseStepConfigs(input.pipeline, phase);

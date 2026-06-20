@@ -26,6 +26,7 @@ export type {
   ProxyAcquireInput,
   ProxyAttemptContext,
   ProxyAttemptResult,
+  ProxyCondition,
   ProxyDecisionState,
   ProxyDecisionStatePatch,
   ProxyDnsMode,
