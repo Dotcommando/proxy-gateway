@@ -1240,7 +1240,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 24.2 Full Gateway Retry/Fallback/Verification
+### 24.2 Full Gateway Retry/Fallback/Verification - Done
 
 Scope:
 - Exercise the step 23 executor retry/fallback/verification behavior through `createProxyGateway`.
@@ -1262,6 +1262,20 @@ Verify:
 - Full gateway retry/fallback/verification tests pass.
 - Existing attempt executor and retry decider tests still pass.
 
+Implemented:
+- Added gateway integration coverage for same-attempt retry from a configured plan.
+- Added gateway integration coverage for verification mismatch fallback.
+- Added gateway integration coverage for verified-after-acquire geo rejection before acquire when no verifier is configured.
+- Added gateway integration coverage proving unsafe `POST` without `idempotency-key` does not retry through `createProxyGateway`.
+- Confirmed no production code changes were required; the 24.1 gateway wiring and step 23 executor/retry behavior already satisfied these cases.
+- Checked nested AGENTS.md files; no new durable rule was needed.
+
+Verified:
+- `npm test -- --runTestsByPath tests/gateway-plan-flow.test.ts`
+- `npm test -- --runTestsByPath tests/gateway-plan-flow.test.ts tests/attempt-executor.test.ts tests/retry-decider.test.ts tests/execution-planner.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ### 24.3 Target Access And Redaction Integration
 
 Scope:
@@ -1269,18 +1283,21 @@ Scope:
 - Prove service-error diagnostics are redacted.
 - Prove successful target response body/header data is not redacted or mutated.
 - Keep access checks before planning and provider capability lookup.
+- Keep this step focused on integration ordering and redaction boundaries; do not redesign `RedactionService`.
 
 Red:
-- Add denied-target ordering tests for plan-configured and no-plan fallback flows.
-- Add redacted service-error integration tests using headers, route auth, and URL credentials.
-- Add successful-response no-mutation tests for headers and body.
+- Add denied-target ordering tests for plan-configured and no-plan fallback flows; assert no provider capability lookup, acquire, verification, or transport execution happens.
+- Add service-error redaction tests for target headers and route auth/URL credential diagnostics when failures happen after acquire.
+- Add successful-response no-mutation tests proving target response headers/body are returned as provided.
 
 Green:
 - Adjust use-case ordering only if tests prove side effects happen too early.
 - Keep redaction in diagnostics/service errors, not successful target responses.
+- Add only narrow production changes exposed by integration failures.
 
 Verify:
 - Target access and redaction integration tests pass.
+- Existing target access, redaction, attempt executor, and gateway plan-flow tests still pass.
 
 ### 24.4 Full Gateway Body/Status Compatibility
 
@@ -1288,6 +1305,7 @@ Scope:
 - Cover full gateway path for text, JSON base64, multipart binary request, multipart binary response, null-body statuses, and target HTTP error statuses.
 - Use proxy-fetch-compatible request shapes already covered by lower-level parser/builder tests.
 - Confirm compatibility through `createProxyGateway`, not by duplicating parser/builder unit coverage.
+- Use small deterministic byte fixtures and response JSON assertions.
 
 Red:
 - Add integration tests for JSON text request/response through the full path.
@@ -1295,27 +1313,34 @@ Red:
 - Add integration tests for multipart binary request and multipart binary response through the full path.
 - Add integration tests for null-body statuses 204, 205, and 304.
 - Add integration tests proving target HTTP error statuses still return `ok: true` service envelopes by default.
+- Add one stream-shaped multipart request test only if the existing parser helpers make it deterministic without broad new infrastructure.
 
 Green:
 - Reuse existing parser, normalizer, executor, and builder behavior.
+- Add helper builders in tests only when they reduce repeated wire-shape setup.
 
 Verify:
 - Body/status integration tests pass.
+- Existing parser, builder, multipart, and gateway plan-flow tests still pass.
 
 ### 24.5 Redirect/Final URL Guard Contract
 
 Scope:
 - Make redirect/final URL guard responsibility explicit in target transport contracts.
 - Do not implement full redirect-chain orchestration in core v0.1 unless explicitly needed.
+- First inspect current target access and transport port contracts; this may be documentation/contract-only if final URL re-check already has a natural hook.
 
 Red:
 - Add tests or type-level contract checks proving guard methods/contract fields are available to transports.
+- Add a failing test for final URL rejection only if there is already a gateway-level point where final URL information is available.
 
 Green:
 - Add minimal port contract shape for redirect/final URL guard if missing.
+- Avoid implementing redirect-chain orchestration in the core.
 
 Verify:
 - Contract tests pass.
+- Existing target access and direct-route hardening tests still pass.
 
 ## 25. Thin Wrapper Contract Suite
 

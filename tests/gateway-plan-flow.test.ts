@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  BODY_KIND_TEXT,
   createProxyGateway,
   type GatewayTargetResponse,
   PROXY_ATTEMPT_RESULT_OUTCOME,
@@ -14,6 +15,7 @@ import {
   type ProxyProviderCapabilities,
   type ProxyProviderInstance,
   type ProxyRoute,
+  type ProxyRouteRequirements,
   RESPONSE_CODE,
   RETRY_CONDITION,
   type TargetTransportPort,
@@ -94,6 +96,50 @@ describe('gateway planner-owned direct flow', () => {
     ]);
   });
 
+  it('retries the same configured attempt through the gateway when policy allows it', async () => {
+    const acquiredProviderIds: string[] = [];
+    const releasedResults: ProxyAttemptResult[] = [];
+    let transportCalls = 0;
+    const gateway = createProxyGateway({
+      plan: {
+        attempts: [
+          {
+            maxAttempts: 2,
+            provider: 'provider-a',
+            retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+      providers: [
+        provider('provider-a', acquiredProviderIds, {
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          transportCalls += 1;
+
+          if (transportCalls === 1) {
+            throw new Error('temporary target failure');
+          }
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest());
+
+    expect((await response.json()).ok).toBe(true);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-a']);
+    expect(releasedResults.map((result) => result.outcome)).toEqual([
+      PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_NETWORK_ERROR,
+      PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
+    ]);
+  });
+
   it('plans strict verified-after-acquire geo when an exit verifier is configured', async () => {
     let verified = false;
     const acquiredProviderIds: string[] = [];
@@ -143,6 +189,116 @@ describe('gateway planner-owned direct flow', () => {
     expect((await response.json()).ok).toBe(true);
     expect(acquiredProviderIds).toEqual(['geo-provider']);
     expect(verified).toBe(true);
+  });
+
+  it('falls back after verification mismatch through the gateway when policy allows it', async () => {
+    const acquiredProviderIds: string[] = [];
+    const verifiedProviderIds: string[] = [];
+    const transportedProviderIds: string[] = [];
+    const gateway = createProxyGateway({
+      exitVerifier: {
+        verify: async (input) => {
+          verifiedProviderIds.push(input.lease.providerInstanceId);
+
+          return {
+            checkedAt: new Date('2026-01-01T00:00:00.000Z'),
+            country: input.lease.providerInstanceId === 'geo-provider-a' ? 'FR' : 'DE',
+            ip: input.lease.providerInstanceId === 'geo-provider-a' ? '203.0.113.11' : '203.0.113.12',
+            matchesRequirements: input.lease.providerInstanceId !== 'geo-provider-a',
+            source: 'test-verifier',
+          };
+        },
+      },
+      plan: {
+        attempts: [
+          {
+            provider: 'geo-provider-a',
+            requirements: strictGermanGeoRequirements(),
+            retryOn: [RETRY_CONDITION.PROXY_GEO_MISMATCH],
+          },
+          {
+            provider: 'geo-provider-b',
+            requirements: strictGermanGeoRequirements(),
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+      providers: [
+        provider('geo-provider-a', acquiredProviderIds, {
+          capabilities: verifiedAfterAcquireGeoCapabilities(),
+          route: forwardProxyRoute('geo-a.example'),
+        }),
+        provider('geo-provider-b', acquiredProviderIds, {
+          capabilities: verifiedAfterAcquireGeoCapabilities(),
+          route: forwardProxyRoute('geo-b.example'),
+        }),
+      ],
+      transport: {
+        execute: async (input) => {
+          if (input.route.kind === PROXY_ROUTE_KIND.FORWARD_PROXY) {
+            transportedProviderIds.push(input.route.host);
+          }
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest());
+
+    expect((await response.json()).ok).toBe(true);
+    expect(acquiredProviderIds).toEqual(['geo-provider-a', 'geo-provider-b']);
+    expect(verifiedProviderIds).toEqual(['geo-provider-a', 'geo-provider-b']);
+    expect(transportedProviderIds).toEqual(['geo-b.example']);
+  });
+
+  it('rejects a verified-after-acquire geo plan before acquire when no verifier is configured', async () => {
+    let acquired = false;
+    let transported = false;
+    const gateway = createProxyGateway({
+      plan: {
+        attempts: [
+          {
+            provider: 'geo-provider',
+            requirements: strictGermanGeoRequirements(),
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+      providers: [
+        provider('geo-provider', [], {
+          acquire: async () => {
+            acquired = true;
+
+            return {
+              id: 'geo-provider-lease',
+              providerInstanceId: 'geo-provider',
+              providerKind: 'test-provider',
+              route: { kind: PROXY_ROUTE_KIND.DIRECT },
+            };
+          },
+          capabilities: verifiedAfterAcquireGeoCapabilities(),
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          transported = true;
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: RESPONSE_CODE.NO_PLANNABLE_PROVIDER,
+      },
+      ok: false,
+      version: WIRE_PROTOCOL_VERSION,
+    });
+    expect(acquired).toBe(false);
+    expect(transported).toBe(false);
   });
 
   it('returns a stable service error when the configured plan is not plannable', async () => {
@@ -238,7 +394,65 @@ describe('gateway planner-owned direct flow', () => {
     });
     expect(capabilityCalls).toBe(0);
   });
+
+  it('does not retry unsafe POST without an idempotency key through the gateway', async () => {
+    const acquiredProviderIds: string[] = [];
+    let transportCalls = 0;
+    const gateway = createProxyGateway({
+      plan: {
+        attempts: [
+          {
+            maxAttempts: 2,
+            provider: 'provider-a',
+            retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+      providers: [
+        provider('provider-a', acquiredProviderIds),
+      ],
+      retrySafety: {
+        requireIdempotencyKeyForUnsafeRetries: true,
+        retryUnsafeMethods: true,
+      },
+      transport: {
+        execute: async () => {
+          transportCalls += 1;
+
+          throw new Error('target failure');
+        },
+      },
+    });
+    const response = await gateway.handle(proxyFetchJsonRequest({
+      body: {
+        kind: BODY_KIND_TEXT,
+        text: 'unsafe write',
+      },
+      method: 'POST',
+    }));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+      },
+      ok: false,
+      version: WIRE_PROTOCOL_VERSION,
+    });
+    expect(acquiredProviderIds).toEqual(['provider-a']);
+    expect(transportCalls).toBe(1);
+  });
 });
+
+interface IProxyFetchJsonRequestOptions {
+  body?: null | {
+    kind: typeof BODY_KIND_TEXT;
+    text: string;
+  };
+  headers?: Array<[string, string]>;
+  method?: string;
+}
 
 function provider(
   id: string,
@@ -282,7 +496,7 @@ function okTransport(): TargetTransportPort {
 function okTargetResponse(): GatewayTargetResponse {
   return {
     body: {
-      kind: 'text',
+      kind: BODY_KIND_TEXT,
       replayability: 'replayable',
       text: 'ok',
     },
@@ -302,14 +516,35 @@ function forwardProxyRoute(host: string): ProxyRoute {
   };
 }
 
-function proxyFetchJsonRequest(): Request {
+function strictGermanGeoRequirements(): ProxyRouteRequirements {
+  return {
+    geo: {
+      country: 'DE',
+      strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+    },
+  };
+}
+
+function verifiedAfterAcquireGeoCapabilities(): ProxyProviderCapabilities {
+  return {
+    geo: {
+      countries: '*',
+      countrySelection: PROXY_PROVIDER_COUNTRY_SELECTION.EXTERNAL_OR_PROVIDER_CONFIG,
+      mode: PROXY_PROVIDER_GEO_MODE.VERIFIED_AFTER_ACQUIRE,
+    },
+  };
+}
+
+function proxyFetchJsonRequest(options: IProxyFetchJsonRequestOptions = {}): Request {
+  const method = options.method ?? 'GET';
+
   return new Request('https://gateway.test/proxy', {
     body: JSON.stringify({
       context: {},
       request: {
-        body: null,
-        headers: [],
-        method: 'GET',
+        body: options.body ?? null,
+        headers: options.headers ?? [],
+        method,
         url: 'https://example.com/resource',
       },
       version: WIRE_PROTOCOL_VERSION,
