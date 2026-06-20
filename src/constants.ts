@@ -28,6 +28,12 @@ export const JSON_CONTENT_TYPE = 'application/json';
 
 export const MULTIPART_CONTENT_TYPE_PREFIX = 'multipart/form-data';
 
+export const MULTIPART_BOUNDARY_PREFIX = '--';
+
+export const MULTIPART_CRLF = '\r\n';
+
+export const MULTIPART_HEADER_SEPARATOR = `${MULTIPART_CRLF}${MULTIPART_CRLF}`;
+
 export const SERVICE_ACCEPT_HEADER_VALUE = `${JSON_CONTENT_TYPE}, ${MULTIPART_CONTENT_TYPE_PREFIX}`;
 
 export const TEXT_CONTENT_TYPE_PREFIX = 'text/';

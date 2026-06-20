@@ -17,7 +17,7 @@ import type {
 } from '../../ports/outbound';
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
-import { ProxyFetchJsonEnvelopeBuilder, ProxyFetchJsonEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
+import { ProxyFetchEnvelopeParser, ProxyFetchJsonEnvelopeBuilder } from '../envelopes/proxy-fetch-json-envelope';
 import { RedactionService } from '../redaction';
 import { TargetAccessGuard } from '../security';
 import {
@@ -32,7 +32,7 @@ import type { ProxyGatewayOptions } from '../types';
 export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #bodyBufferManager: BodyBufferManager;
   readonly #jsonEnvelopeBuilder = new ProxyFetchJsonEnvelopeBuilder();
-  readonly #jsonEnvelopeParser = new ProxyFetchJsonEnvelopeParser();
+  readonly #envelopeParser: ProxyFetchEnvelopeParser;
   readonly #options: ProxyGatewayOptions;
   readonly #resultClassifier: ResultClassifier;
   readonly #targetAccessGuard: TargetAccessGuard;
@@ -41,6 +41,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   constructor(options: ProxyGatewayOptions) {
     this.#options = options;
     this.#bodyBufferManager = new BodyBufferManager(options.bodyBuffering);
+    this.#envelopeParser = new ProxyFetchEnvelopeParser(options.bodyBuffering);
     this.#resultClassifier = new ResultClassifier(new RedactionService(options.redaction));
     this.#targetAccessGuard = new TargetAccessGuard(options.targetAccess);
   }
@@ -49,7 +50,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     let totalScope: TimeoutScope | undefined;
 
     try {
-      const parsed = await this.#jsonEnvelopeParser.parse(request);
+      const parsed = await this.#envelopeParser.parse(request);
       const totalTimeoutMs = parsed.options.timeoutMs ?? this.#options.timeouts?.totalTimeoutMs;
 
       totalScope = this.#timeoutController.createTotalScope({

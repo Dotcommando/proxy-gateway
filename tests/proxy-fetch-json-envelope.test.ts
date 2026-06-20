@@ -1,12 +1,25 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  ProxyFetchEnvelopeParser,
   ProxyFetchJsonEnvelopeBuilder,
   ProxyFetchJsonEnvelopeParser,
+  ProxyFetchMultipartEnvelopeParser,
 } from '../src/app/envelopes/proxy-fetch-json-envelope';
-import { RESPONSE_CODE, WIRE_PROTOCOL_VERSION } from '../src/constants';
+import {
+  BINARY_BODY_PART_NAME,
+  BODY_KIND_BINARY,
+  JSON_CONTENT_TYPE,
+  METADATA_PART_NAME,
+  MULTIPART_CONTENT_TYPE_PREFIX,
+  OCTET_STREAM_CONTENT_TYPE,
+  RESPONSE_CODE,
+  STREAMING_MULTIPART_BOUNDARY_PREFIX,
+  WIRE_PROTOCOL_VERSION,
+} from '../src/constants';
 
 const parser = new ProxyFetchJsonEnvelopeParser();
+const envelopeParser = new ProxyFetchEnvelopeParser();
 const builder = new ProxyFetchJsonEnvelopeBuilder();
 
 describe('ProxyFetchJsonEnvelopeParser', () => {
@@ -210,6 +223,172 @@ describe('ProxyFetchJsonEnvelopeParser', () => {
   });
 });
 
+describe('ProxyFetchEnvelopeParser multipart dispatch', () => {
+  it('parses a multipart request with meta and raw binary body parts', async () => {
+    const bodyBytes = new Uint8Array([0, 1, 2, 3, 255, 10, 13]);
+    const parsed = await envelopeParser.parse(
+      multipartRequest({
+        bodyBytes,
+        envelope: multipartEnvelope({
+          request: {
+            body: {
+              kind: BODY_KIND_BINARY,
+              partName: BINARY_BODY_PART_NAME,
+            },
+            headers: [['content-type', OCTET_STREAM_CONTENT_TYPE]],
+            method: 'POST',
+            url: 'https://example.com/upload',
+          },
+        }),
+      }),
+    );
+
+    expect(parsed.target).toMatchObject({
+      body: {
+        kind: 'bytes',
+        replayability: 'replayable',
+      },
+      headers: [['content-type', OCTET_STREAM_CONTENT_TYPE]],
+      method: 'POST',
+      url: 'https://example.com/upload',
+    });
+    expect(parsed.target.body.kind).toBe('bytes');
+
+    if (parsed.target.body.kind === 'bytes') {
+      expect(Array.from(parsed.target.body.bytes)).toEqual(Array.from(bodyBytes));
+    }
+  });
+
+  it('accepts the proxy-fetch streaming multipart shape with meta first and body second', async () => {
+    const boundary = `${STREAMING_MULTIPART_BOUNDARY_PREFIX}-test-boundary`;
+    const parsed = await envelopeParser.parse(
+      multipartRequest({
+        bodyBytes: new TextEncoder().encode('streamed'),
+        boundary,
+        envelope: multipartEnvelope({
+          request: {
+            body: {
+              kind: BODY_KIND_BINARY,
+              partName: BINARY_BODY_PART_NAME,
+            },
+            duplex: 'half',
+            method: 'POST',
+            url: 'https://example.com/stream',
+          },
+        }),
+      }),
+    );
+
+    expect(parsed.target.fetch.duplex).toBe('half');
+    expect(parsed.target.body.kind).toBe('bytes');
+
+    if (parsed.target.body.kind === 'bytes') {
+      expect(new TextDecoder().decode(parsed.target.body.bytes)).toBe('streamed');
+    }
+  });
+
+  it('rejects missing, extra, out-of-order, and malformed multipart parts', async () => {
+    await expect(
+      envelopeParser.parse(
+        multipartRequest({
+          bodyBytes: new Uint8Array(),
+          includeBodyPart: false,
+        }),
+      ),
+    ).rejects.toThrow('Expected multipart request to contain exactly meta and body parts.');
+
+    await expect(
+      envelopeParser.parse(
+        multipartRequest({
+          bodyBytes: new Uint8Array(),
+          extraPart: true,
+        }),
+      ),
+    ).rejects.toThrow('Expected multipart request to contain exactly meta and body parts.');
+
+    await expect(
+      envelopeParser.parse(
+        multipartRequest({
+          bodyBytes: new Uint8Array(),
+          bodyFirst: true,
+        }),
+      ),
+    ).rejects.toThrow('Expected multipart request parts to be ordered as meta then body.');
+
+    await expect(
+      envelopeParser.parse(
+        new Request('https://gateway.test/proxy', {
+          body: 'not multipart',
+          headers: {
+            'content-type': `${MULTIPART_CONTENT_TYPE_PREFIX}; boundary=missing`,
+          },
+          method: 'POST',
+        }),
+      ),
+    ).rejects.toThrow('Malformed multipart request boundary.');
+  });
+
+  it('rejects multipart meta that does not reference the body part', async () => {
+    await expect(
+      envelopeParser.parse(
+        multipartRequest({
+          bodyBytes: new Uint8Array([1]),
+          envelope: multipartEnvelope({
+            request: {
+              body: {
+                kind: BODY_KIND_BINARY,
+                partName: 'other',
+              },
+              method: 'POST',
+              url: 'https://example.com/upload',
+            },
+          }),
+        }),
+      ),
+    ).rejects.toThrow('Expected multipart request body to reference the body part.');
+  });
+
+  it('enforces the configured multipart request body limit while reading', async () => {
+    const limitedParser = new ProxyFetchMultipartEnvelopeParser({
+      maxBufferedRequestBodyBytes: 20,
+    });
+
+    await expect(
+      limitedParser.parse(
+        multipartRequest({
+          bodyBytes: new Uint8Array(64),
+        }),
+      ),
+    ).rejects.toThrow('Multipart request body exceeded 20 bytes.');
+  });
+
+  it('dispatches JSON requests unchanged and rejects unsupported content types', async () => {
+    const parsed = await envelopeParser.parse(
+      jsonRequest({
+        request: {
+          body: null,
+          method: 'GET',
+          url: 'https://example.com/json',
+        },
+        version: WIRE_PROTOCOL_VERSION,
+      }),
+    );
+
+    expect(parsed.target.url).toBe('https://example.com/json');
+    await expect(
+      envelopeParser.parse(
+        new Request('https://gateway.test/proxy', {
+          body: 'hello',
+          headers: {
+            'content-type': 'text/plain',
+          },
+          method: 'POST',
+        }),
+      ),
+    ).rejects.toThrow('Unsupported proxy-fetch request content type.');
+  });
+});
+
 describe('ProxyFetchJsonEnvelopeBuilder', () => {
   it('builds a JSON response envelope with full response metadata and a text body', async () => {
     const response = builder.buildTargetResponse({
@@ -392,4 +571,93 @@ function jsonRequest(envelope: unknown): Request {
     },
     method: 'POST',
   });
+}
+
+function multipartEnvelope(overrides: {
+  request?: Record<string, unknown>;
+} = {}): Record<string, unknown> {
+  return {
+    context: {
+      flowKey: 'flow-a',
+    },
+    options: {
+      timeoutMs: 1000,
+    },
+    request: {
+      body: {
+        kind: BODY_KIND_BINARY,
+        partName: BINARY_BODY_PART_NAME,
+      },
+      method: 'POST',
+      url: 'https://example.com/upload',
+      ...overrides.request,
+    },
+    version: WIRE_PROTOCOL_VERSION,
+  };
+}
+
+function multipartRequest(options: {
+  bodyBytes: Uint8Array;
+  bodyFirst?: boolean;
+  boundary?: string;
+  envelope?: Record<string, unknown>;
+  extraPart?: boolean;
+  includeBodyPart?: boolean;
+}): Request {
+  const boundary = options.boundary ?? 'proxy-gateway-test-boundary';
+  const envelope = options.envelope ?? multipartEnvelope();
+  const metaPart = multipartPart({
+    body: new TextEncoder().encode(JSON.stringify(envelope)),
+    contentType: JSON_CONTENT_TYPE,
+    name: METADATA_PART_NAME,
+  });
+  const bodyPart = multipartPart({
+    body: options.bodyBytes,
+    contentType: OCTET_STREAM_CONTENT_TYPE,
+    filename: BINARY_BODY_PART_NAME,
+    name: BINARY_BODY_PART_NAME,
+  });
+  const parts = options.bodyFirst
+    ? [bodyPart, metaPart]
+    : [metaPart, ...(options.includeBodyPart === false ? [] : [bodyPart])];
+
+  if (options.extraPart === true) {
+    parts.push(
+      multipartPart({
+        body: new TextEncoder().encode('extra'),
+        contentType: 'text/plain',
+        name: 'extra',
+      }),
+    );
+  }
+
+  const body = Buffer.concat([
+    ...parts.map((part) => Buffer.concat([Buffer.from(`--${boundary}\r\n`, 'utf8'), part])),
+    Buffer.from(`--${boundary}--\r\n`, 'utf8'),
+  ]);
+
+  return new Request('https://gateway.test/proxy', {
+    body,
+    headers: {
+      'content-type': `${MULTIPART_CONTENT_TYPE_PREFIX}; boundary=${boundary}`,
+    },
+    method: 'POST',
+  });
+}
+
+function multipartPart(options: {
+  body: Uint8Array;
+  contentType: string;
+  filename?: string;
+  name: string;
+}): Buffer {
+  const disposition = options.filename === undefined
+    ? `Content-Disposition: form-data; name="${options.name}"`
+    : `Content-Disposition: form-data; name="${options.name}"; filename="${options.filename}"`;
+
+  return Buffer.concat([
+    Buffer.from(`${disposition}\r\nContent-Type: ${options.contentType}\r\n\r\n`, 'utf8'),
+    Buffer.from(options.body),
+    Buffer.from('\r\n', 'utf8'),
+  ]);
 }

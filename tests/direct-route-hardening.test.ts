@@ -1,9 +1,15 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  BINARY_BODY_PART_NAME,
+  BODY_KIND_BINARY,
   createProxyGateway,
   type GatewayTargetRequest,
   type GatewayTargetResponse,
+  JSON_CONTENT_TYPE,
+  METADATA_PART_NAME,
+  MULTIPART_CONTENT_TYPE_PREFIX,
+  OCTET_STREAM_CONTENT_TYPE,
   PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_ROUTE_KIND,
   type ProxyAttemptResult,
@@ -182,6 +188,30 @@ describe('direct route execution hardening', () => {
       expect(Array.from(executedTargets[0].body.bytes)).toEqual([1, 2, 3, 4]);
     }
   });
+
+  it('passes multipart binary proxy-fetch requests to direct route execution', async () => {
+    const executedTargets: GatewayTargetRequest[] = [];
+    const gateway = createProxyGateway({
+      providers: [directProvider()],
+      random: { createId: () => 'request-multipart' },
+      transport: {
+        execute: async (input) => {
+          executedTargets.push(input.target);
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const response = await gateway.handle(proxyFetchMultipartRequest(new Uint8Array([9, 8, 7, 6])));
+
+    expect((await response.json()).ok).toBe(true);
+    expect(executedTargets).toHaveLength(1);
+    expect(executedTargets[0]?.body.kind).toBe('bytes');
+
+    if (executedTargets[0]?.body.kind === 'bytes') {
+      expect(Array.from(executedTargets[0].body.bytes)).toEqual([9, 8, 7, 6]);
+    }
+  });
 });
 
 function directProvider(
@@ -259,4 +289,62 @@ function proxyFetchJsonRequest(
     },
     method: 'POST',
   });
+}
+
+function proxyFetchMultipartRequest(bodyBytes: Uint8Array): Request {
+  const boundary = 'proxy-gateway-direct-test-boundary';
+  const envelope = {
+    context: {},
+    request: {
+      body: {
+        kind: BODY_KIND_BINARY,
+        partName: BINARY_BODY_PART_NAME,
+      },
+      headers: [['content-type', OCTET_STREAM_CONTENT_TYPE]],
+      method: 'POST',
+      url: 'https://example.com/binary',
+    },
+    version: WIRE_PROTOCOL_VERSION,
+  };
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\n`, 'utf8'),
+    multipartPart({
+      body: new TextEncoder().encode(JSON.stringify(envelope)),
+      contentType: JSON_CONTENT_TYPE,
+      name: METADATA_PART_NAME,
+    }),
+    Buffer.from(`--${boundary}\r\n`, 'utf8'),
+    multipartPart({
+      body: bodyBytes,
+      contentType: OCTET_STREAM_CONTENT_TYPE,
+      filename: BINARY_BODY_PART_NAME,
+      name: BINARY_BODY_PART_NAME,
+    }),
+    Buffer.from(`--${boundary}--\r\n`, 'utf8'),
+  ]);
+
+  return new Request('https://gateway.test/proxy', {
+    body,
+    headers: {
+      'content-type': `${MULTIPART_CONTENT_TYPE_PREFIX}; boundary=${boundary}`,
+    },
+    method: 'POST',
+  });
+}
+
+function multipartPart(options: {
+  body: Uint8Array;
+  contentType: string;
+  filename?: string;
+  name: string;
+}): Buffer {
+  const disposition = options.filename === undefined
+    ? `Content-Disposition: form-data; name="${options.name}"`
+    : `Content-Disposition: form-data; name="${options.name}"; filename="${options.filename}"`;
+
+  return Buffer.concat([
+    Buffer.from(`${disposition}\r\nContent-Type: ${options.contentType}\r\n\r\n`, 'utf8'),
+    Buffer.from(options.body),
+    Buffer.from('\r\n', 'utf8'),
+  ]);
 }

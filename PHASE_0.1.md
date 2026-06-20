@@ -820,7 +820,16 @@ Verify:
 - Existing result-classifier tests pass with centralized redaction.
 - Existing target access tests pass without leaking sensitive URL values.
 
-## 19. Multipart Request Parser
+## 19. Multipart Request Parser - Done
+
+Implemented:
+- Added content-type dispatch through `ProxyFetchEnvelopeParser`.
+- Added dependency-free multipart parser for the `@echospecter/proxy-fetch` two-part `meta` + `body` request shape.
+- Added support for `request.body.kind: "binary"` with `partName: "body"` in multipart meta.
+- Added byte-preserving binary body parsing and streaming-shape boundary compatibility for `proxy-fetch-stream-*` boundaries.
+- Enforced configured multipart request body size while reading.
+- Wired gateway use-case parsing through the dispatch parser so direct route execution accepts multipart binary requests.
+- Kept multipart response building out of this step.
 
 Detailed scope:
 - Keep proxy-fetch wire parsing/building in `src/app/envelopes`.
