@@ -304,7 +304,7 @@ Next three steps reassessment:
 - Step 10 remains route contract hardening. It should avoid touching direct-plan session behavior unless route-level requirements need the same identity shape.
 - Step 11 remains route selection wiring. It should reuse the existing direct-plan planning/session helpers so route-selected plans get the same read/write behavior.
 
-## 9. Provider Acquire Identity Handoff
+## 9. Provider Acquire Identity Handoff - Completed
 
 Purpose:
 - Ensure provider adapters receive identity/sticky/isolation requirements needed to implement provider-specific sessions.
@@ -322,6 +322,17 @@ Green:
 Verify:
 - Provider acquire handoff tests pass.
 - Session read/write tests still pass.
+
+Progress:
+- Added provider acquire handoff coverage proving sticky, fixed, per-request, isolation key, isolation scope, and request-new-identity fields reach `ProxyAcquireInput.requirements.identity`.
+- Covered session-derived provider pinning plus fallback attempts, proving pinning does not erase first-attempt identity and fallback attempts keep their own identity requirements.
+- No production code changes were needed because Steps 7-8 already preserved structured requirements through planning and execution.
+- Checked nested AGENTS files; no updates were needed for this test-only step.
+
+Next three steps reassessment:
+- Step 10 is ready. It should harden route/default-route contracts and decide whether route-level `requirements` remain part of v0.2.
+- Step 11 depends on Step 10's route contract shape and should reuse the existing direct-plan session read/write helpers.
+- Step 12 should be deleted or sharply narrowed if Step 10 decides not to add route-level requirements.
 
 ## 10. Route Config Public API Hardening
 
