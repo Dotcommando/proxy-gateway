@@ -48,6 +48,12 @@ export class RedactionService {
 
     const queryEntries = Array.from(url.searchParams.entries());
 
+    if (url.username.length > 0) {
+      url.username = this.#replacement;
+    }
+    if (url.password.length > 0) {
+      url.password = this.#replacement;
+    }
     if (queryEntries.length === 0) {
       return url.toString();
     }

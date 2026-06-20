@@ -37,6 +37,8 @@ planned attempt
 
 It returns app-level execution results, not Web `Response` objects. Envelope building stays in `HandleProxyFetchRequestUseCase`.
 
+When classified attempt diagnostics are exposed in service error `details`, use-cases must pass only the `ResultClassifier` diagnostics. Do not build raw target, route, verifier, or provider diagnostics directly in envelope code.
+
 It must pass `requestId`, provider instance id, attempt context, normalized target, structured requirements, execution context, and the active attempt signal to `provider.acquire()`.
 
 `release()` receives the classified `ProxyAttemptResult`. Release failures are recorded as `GatewayEvent`s and must not mask the completed or failed attempt result.

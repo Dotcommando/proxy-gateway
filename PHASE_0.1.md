@@ -1276,7 +1276,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 24.3 Target Access And Redaction Integration
+### 24.3 Target Access And Redaction Integration - Done
 
 Scope:
 - Prove denied initial targets return before provider/planner/executor side effects.
@@ -1299,6 +1299,21 @@ Verify:
 - Target access and redaction integration tests pass.
 - Existing target access, redaction, attempt executor, and gateway plan-flow tests still pass.
 
+Implemented:
+- Added gateway integration tests proving denied initial targets return before planner capability lookup, provider acquire, verifier, and transport side effects.
+- Added gateway integration tests proving classified diagnostics are exposed through service error `details` only after redaction.
+- Added gateway integration tests proving successful target response headers and bodies are not redacted or mutated.
+- Passed classified diagnostics from `ResultClassifier` into gateway service error `details`.
+- Extended URL redaction to remove username/password credentials as well as sensitive query parameters.
+- Updated the direct-route hardening assertion for the new redacted `details` contract.
+- Updated nested AGENTS.md files with the durable service-error diagnostics rule.
+
+Verified:
+- `npm test -- --runTestsByPath tests/gateway-access-redaction.test.ts`
+- `npm test -- --runTestsByPath tests/gateway-access-redaction.test.ts tests/target-access-guard.test.ts tests/redaction-service.test.ts tests/result-classifier.test.ts tests/direct-route-hardening.test.ts tests/gateway-plan-flow.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ### 24.4 Full Gateway Body/Status Compatibility
 
 Scope:
@@ -1306,6 +1321,7 @@ Scope:
 - Use proxy-fetch-compatible request shapes already covered by lower-level parser/builder tests.
 - Confirm compatibility through `createProxyGateway`, not by duplicating parser/builder unit coverage.
 - Use small deterministic byte fixtures and response JSON assertions.
+- Keep service error diagnostics out of this step except where a body/status compatibility failure needs assertion.
 
 Red:
 - Add integration tests for JSON text request/response through the full path.
@@ -1313,15 +1329,18 @@ Red:
 - Add integration tests for multipart binary request and multipart binary response through the full path.
 - Add integration tests for null-body statuses 204, 205, and 304.
 - Add integration tests proving target HTTP error statuses still return `ok: true` service envelopes by default.
-- Add one stream-shaped multipart request test only if the existing parser helpers make it deterministic without broad new infrastructure.
+- Add one deterministic streaming multipart request test only if it can reuse existing multipart helpers without broad new infrastructure.
+- Add assertions that target transport receives normalized `GatewayBody` shapes for text, bytes, and null bodies.
 
 Green:
 - Reuse existing parser, normalizer, executor, and builder behavior.
 - Add helper builders in tests only when they reduce repeated wire-shape setup.
+- Do not add new body formats beyond the proxy-fetch v1 formats already documented.
 
 Verify:
 - Body/status integration tests pass.
 - Existing parser, builder, multipart, and gateway plan-flow tests still pass.
+- Redaction/access integration tests still pass because service errors now include diagnostics.
 
 ### 24.5 Redirect/Final URL Guard Contract
 
@@ -1329,14 +1348,17 @@ Scope:
 - Make redirect/final URL guard responsibility explicit in target transport contracts.
 - Do not implement full redirect-chain orchestration in core v0.1 unless explicitly needed.
 - First inspect current target access and transport port contracts; this may be documentation/contract-only if final URL re-check already has a natural hook.
+- Decide whether the guard belongs in `TargetTransportPort` input, a separate app service, or an app-level helper exposed to transports.
 
 Red:
 - Add tests or type-level contract checks proving guard methods/contract fields are available to transports.
 - Add a failing test for final URL rejection only if there is already a gateway-level point where final URL information is available.
+- Add a test proving initial target access behavior is unchanged after adding the final URL guard contract.
 
 Green:
 - Add minimal port contract shape for redirect/final URL guard if missing.
 - Avoid implementing redirect-chain orchestration in the core.
+- Update nested AGENTS.md if a new target transport guard responsibility is introduced.
 
 Verify:
 - Contract tests pass.
@@ -1349,6 +1371,7 @@ Red:
 - Test that an adapter preserves raw JSON body, multipart bytes, multipart boundary, response status, response headers, and response body.
 - Add byte-level or sha256 assertions proving binary and multipart bodies are not corrupted by framework body parsers.
 - Add tests proving wrapper code does not pre-read or JSON-parse the gateway route body before passing it to `ProxyGateway.handle()`.
+- Add tests proving service error `details` survive wrapper boundaries without being reserialized incorrectly.
 - Add a Node HTTP server factory for the contract suite.
 - Add framework-shaped mock factories for Express, Fastify, and NestJS wrappers if real frameworks are not dev dependencies.
 - If real Express/Fastify/NestJS wrappers are shipped in this package, keep those packages out of runtime dependencies and use them only as devDependencies for tests where possible.

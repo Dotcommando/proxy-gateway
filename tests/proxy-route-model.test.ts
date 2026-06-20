@@ -116,6 +116,24 @@ describe('proxy route model', () => {
     expect(await response.json()).toEqual({
       error: {
         code: RESPONSE_CODE.UNSUPPORTED_ROUTE,
+        details: {
+          route: {
+            hops: [
+              {
+                host: 'proxy.example.com',
+                kind: PROXY_ROUTE_HOP_KIND.FORWARD_PROXY,
+                port: 8080,
+                protocol: PROXY_PROTOCOL.HTTP,
+              },
+            ],
+            kind: PROXY_ROUTE_KIND.ROUTE_CHAIN,
+          },
+          target: {
+            headers: [],
+            method: 'GET',
+            url: 'https://example.com/resource',
+          },
+        },
         message: 'Target transport does not support route kind: route-chain.',
         retryable: false,
       },

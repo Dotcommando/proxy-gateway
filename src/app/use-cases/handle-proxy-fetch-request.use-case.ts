@@ -116,6 +116,9 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
 
       return this.#envelopeBuilder.buildServiceError(serviceError?.status ?? 500, {
         code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_ERROR,
+        ...(executorResult.classified.diagnostics !== undefined && {
+          details: executorResult.classified.diagnostics,
+        }),
         message: serviceError?.message ?? 'Gateway attempt failed.',
         retryable: serviceError?.retryable ?? false,
       });

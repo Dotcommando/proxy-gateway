@@ -42,6 +42,16 @@ describe('direct route execution hardening', () => {
     expect(await response.json()).toEqual({
       error: {
         code: RESPONSE_CODE.TARGET_TRANSPORT_ERROR,
+        details: {
+          route: {
+            kind: PROXY_ROUTE_KIND.DIRECT,
+          },
+          target: {
+            headers: [['content-type', 'text/plain']],
+            method: 'POST',
+            url: 'https://example.com/resource',
+          },
+        },
         message: 'Target transport execution failed.',
         retryable: true,
       },
