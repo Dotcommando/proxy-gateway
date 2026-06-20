@@ -8,7 +8,7 @@ It is intended for applications that want a Fetch-like client API while centrali
 
 ## Status
 
-`0.1.x` is the first public line. The package focuses on the provider-agnostic gateway core and thin HTTP/framework integration surfaces. Provider integrations, GeoIP integrations, Tor adapters, probe targets, and config loaders are expected to live in separate packages or user applications.
+`0.1.x` is the first public line. The package focuses on the provider-agnostic gateway core and a thin Node HTTP integration surface. Provider integrations, framework integrations, GeoIP integrations, Tor adapters, probe targets, and config loaders are expected to live in separate packages or user applications.
 
 ## Installation
 
@@ -544,7 +544,7 @@ const handler = createNodeHttpHandler(gateway);
 createServer(handler).listen(3000);
 ```
 
-Express, Fastify, and NestJS integrations may be shipped as thin wrappers or separate adapter packages, depending on dependency requirements.
+The core v0.1 package does not export Express, Fastify, or NestJS wrappers. Use `ProxyGateway.handle(request)` directly from your application, or use separate framework adapter packages when they are available. Framework routes must preserve the raw `proxy-fetch.v1` request body bytes before calling the gateway.
 
 ## Configuration
 

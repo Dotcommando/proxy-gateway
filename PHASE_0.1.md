@@ -1554,7 +1554,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 25.4 Dependency-Free Structural Framework Wrapper Decision
+### 25.4 Dependency-Free Structural Framework Wrapper Decision - Done
 
 Scope:
 - Decide whether Express/Fastify/NestJS structural wrappers belong in the core package for v0.1.
@@ -1577,6 +1577,22 @@ Verify:
 - Wrapper decision is reflected in README, exports, and package checks.
 - Runtime dependency check still proves zero external runtime dependencies.
 
+Implemented:
+- Decided that Express, Fastify, and NestJS wrappers are deferred from the core v0.1 API.
+- Added `tests/framework-wrapper-decision.test.ts`.
+- Verified that the package exports `createNodeHttpHandler` but does not export `createExpressMiddleware`, `createFastifyPlugin`, or `createNestProxyGatewayModule`.
+- Added a runtime-source scan proving `src` does not import Express, Fastify, or NestJS packages.
+- Updated README to describe Node HTTP as the v0.1 integration surface and framework wrappers as separate packages or future work.
+- Updated `src/adapters/inbound/AGENTS.md` with the durable v0.1 framework-wrapper decision.
+
+Verified:
+- `npm test -- --runTestsByPath tests/framework-wrapper-decision.test.ts`
+- `npm test -- --runTestsByPath tests/framework-wrapper-decision.test.ts tests/public-api.test.ts tests/node-http-handler.test.ts tests/node-http-handler-matrix.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+- `npm test`
+- `npm run pack:check`
+
 ## 26. Public Exports and Packaging Checks
 
 Red:
@@ -1586,6 +1602,7 @@ Red:
 - Add CJS and ESM smoke tests after build.
 - Add a packaging check that fails if package runtime dependencies are introduced.
 - Add package-content checks for README, LICENSE, built ESM/CJS/types, and no test-only fixtures in the published package.
+- Add README/API alignment checks that account for the 25.4 decision: `createNodeHttpHandler` is exported, framework wrappers are not exported by core v0.1.
 
 Green:
 - Finalize `src/index.ts` exports.
@@ -1593,12 +1610,17 @@ Green:
 - Ensure package contents include the built API and README.
 - Ensure public exports match README and AGENTS public contracts.
 - Keep temporary bridge APIs explicit if they remain exported for v0.1.
+- Keep framework wrapper deferral in tests/docs; do not add Express/Fastify/NestJS exports in this step.
 
 Verify:
 - `npm run build`
 - `npm run typecheck`
 - `npm test`
 - `npm run pack:check`
+
+Reassessment after 25.4:
+- Step 26 is the final public-contract gate for v0.1 and should stay focused on exports, package contents, CJS/ESM smoke tests, and zero runtime dependencies.
+- Do not reopen the framework-wrapper implementation decision in step 26 unless the public README/API tests reveal a contradiction.
 
 ## Suggested PR Order
 

@@ -8,7 +8,7 @@ They translate external HTTP/framework shapes into Web Fetch API `Request` objec
 
 Do not duplicate gateway logic across Node HTTP, Express, Fastify, NestJS, or Web Fetch handlers.
 
-Runtime core must not depend on Express, Fastify, NestJS, or other web framework packages. Framework integrations in this package must be dependency-free structural wrappers or live in separate packages/dev-only tests.
+Runtime core must not depend on Express, Fastify, NestJS, or other web framework packages. For v0.1, Express, Fastify, and NestJS wrappers are deferred from the core API and must not be exported by this package. Framework integrations should live in separate packages or future phases unless the active task explicitly changes this public contract.
 
 Adapter contract tests must prove:
 
