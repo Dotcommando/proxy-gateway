@@ -1593,7 +1593,7 @@ Verified:
 - `npm test`
 - `npm run pack:check`
 
-## 26. Public Exports and Packaging Checks
+## 26. Public Exports and Packaging Checks - Done
 
 Red:
 - Add public export tests for documented v0.1 contracts.
@@ -1621,6 +1621,24 @@ Verify:
 Reassessment after 25.4:
 - Step 26 is the final public-contract gate for v0.1 and should stay focused on exports, package contents, CJS/ESM smoke tests, and zero runtime dependencies.
 - Do not reopen the framework-wrapper implementation decision in step 26 unless the public README/API tests reveal a contradiction.
+
+Implemented:
+- Added `LICENSE` so the package content matches `package.json.files` and README license expectations.
+- Added `tests/public-contract-types.test.ts` to compile-check exported `NodeHttpHandler`, `TargetFinalUrlGuardPort`, `TargetFinalUrlCheckInput`, and `TargetFinalUrlCheckResult`.
+- Added `tests/package-contract.test.ts` for zero runtime dependency fields, dry-run npm package contents, no `src/` or `tests/` files in the packed package, and built artifact presence.
+- Added CJS and ESM smoke checks against `dist/index.cjs` and `dist/index.js`.
+- Verified built runtime exports include `createProxyGateway`, `createNodeHttpHandler`, and `WIRE_PROTOCOL_VERSION`.
+- Verified built runtime exports do not include deferred Express, Fastify, or NestJS wrappers.
+- Updated `tests/AGENTS.md` with package contract testing guidance.
+- Did not publish the package to npm.
+
+Verified:
+- `npm test -- --runTestsByPath tests/package-contract.test.ts tests/public-contract-types.test.ts tests/framework-wrapper-decision.test.ts`
+- `npm run build`
+- `npm run typecheck`
+- `npm run lint`
+- `npm test`
+- `npm run pack:check`
 
 ## Suggested PR Order
 

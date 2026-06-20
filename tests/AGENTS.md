@@ -30,3 +30,5 @@ npm run lint
 npm test
 npm run pack:check
 ```
+
+Package contract tests should verify build artifacts, public ESM/CJS entrypoints, zero runtime dependency fields, and `npm pack --dry-run` contents. They must never publish the package. Packed package contents should include README, LICENSE, built ESM/CJS/types, and package metadata, and should not include `src/` or `tests/`.
