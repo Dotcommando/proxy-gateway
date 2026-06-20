@@ -592,43 +592,87 @@ Detailed scope:
 - Add package enums/constants before behavior:
   - `TARGET_ACCESS_RESULT_KIND`;
   - `TARGET_ACCESS_REJECTION_REASON`;
+  - `TARGET_ACCESS_CHECK_PURPOSE`, unless an existing enum already covers initial target and redirect/final URL checks;
   - stable response code for denied targets, unless existing `REJECTED_BY_POLICY` is intentionally reused in tests.
 - This step is SSRF risk reduction for target URLs. It must not become DNS intelligence, GeoIP, or network probing.
 - The guard may inspect:
   - normalized target URL scheme/host/port;
   - literal IP hosts;
-  - obvious local hostnames such as `localhost`;
+  - obvious local hostnames such as `localhost` and `*.localhost`;
+  - `.onion` hosts;
   - already-provided resolved IP facts when a future enricher/port supplies them.
 - The guard must not perform DNS resolution by itself.
 - Default policy must deny unsupported schemes and local/private/link-local targets.
 - Explicit policy may allow local/private targets for tests or trusted deployments.
 - `.onion` access should stay denied by default unless target policy explicitly allows onion targets; route capability checks for onion support stay with planning/transport capability work.
-- Redirect guarding in v0.1 should be implemented as a reusable guard method for a supplied redirect URL/final URL. Full redirect-chain integration waits until target transport exposes redirect information.
+- Redirect guarding in v0.1 should be implemented as a reusable guard method for a supplied redirect URL or final URL. Full redirect-chain integration waits until target transport exposes redirect information.
+- Redirect/final URL guarding must normalize and validate:
+  - absolute redirect URLs;
+  - relative `Location` values resolved against the current URL;
+  - protocol-relative `Location` values such as `//127.0.0.1:3000/admin` resolved against the current URL scheme;
+  - malformed redirect URLs, returning enum-backed rejection reasons.
+- Redirect/final URL guarding must apply the same default-deny SSRF rules as initial target guarding.
+- Redirect/final URL guarding must not perform DNS resolution by itself. It may only use already-provided resolved IP facts.
 - Rejections should use stable response codes and classified policy-rejection outcomes where practical.
-- Keep IP parsing dependency-free and focused: IPv4 loopback/private/link-local/multicast/unspecified, IPv6 loopback/link-local/unique-local/unspecified, and bracketed IPv6 URL hosts.
+- Keep IP parsing dependency-free and focused:
+  - IPv4 loopback/private/link-local/multicast/unspecified ranges;
+  - IPv6 loopback/link-local/unique-local/unspecified ranges;
+  - bracketed IPv6 URL hosts.
 - Keep new rejection messages in package constants or enum-backed reason codes. Do not add free-form string reasons.
 - Integration should run before provider capability lookup/acquire in the current direct flow, so denied targets do not cause provider side effects.
 - If integration would force a broad use-case rewrite, keep the guard fully tested as a component and add one direct-flow smoke test only.
+- This step must not implement manual redirect following, redirect-chain execution, `maxRedirects`, cross-host redirect policy, DNS rebinding mitigation through transport connection pinning, or target transport redirect metadata. Those belong to the later target transport/orchestration work.
 
 Red:
 - Add tests that target access result kinds and stable rejection codes use package enums.
+- Add tests that target access rejection reasons use `TARGET_ACCESS_REJECTION_REASON` rather than free-form strings.
 - Add default-deny tests for unsupported schemes such as `file:`, `ftp:`, and `data:`.
 - Add default-deny tests for `localhost`, `*.localhost`, IPv4 loopback, private, link-local, multicast, and unspecified ranges.
 - Add default-deny tests for IPv6 loopback, link-local, unique-local, and unspecified addresses, including bracketed URL hosts.
 - Add `.onion` deny-by-default and explicit-allow tests.
 - Add explicit-allow tests for policies that intentionally permit local/private targets.
 - Add tests that already-resolved private IP facts cause rejection even when the hostname itself is public-looking.
+- Add tests that already-resolved link-local IP facts cause rejection even when the hostname itself is public-looking.
+- Add tests proving the guard does not perform DNS resolution and only consumes already-provided resolved IP facts.
 - Add redirect/final-URL guard tests using a supplied redirect URL, without requiring target transport redirect-chain integration.
-- Add a direct-flow test proving denied targets return a classified service error before provider acquisition.
+- Add redirect URL normalization tests for:
+  - absolute `Location` values;
+  - relative `Location` values resolved against the current URL;
+  - protocol-relative `Location` values resolved against the current URL scheme;
+  - malformed `Location` values rejected with enum-backed reason codes.
+- Add redirect-to-local/private/link-local tests for normalized redirect URLs:
+  - `http://127.0.0.1:<port>/secret`;
+  - `http://[::1]:<port>/secret`;
+  - `http://169.254.169.254/latest/meta-data/`;
+  - `http://10.0.0.5/internal`;
+  - `//127.0.0.1:<port>/admin`.
+- Add tests proving redirect guard uses the same default-deny rules as initial target guard.
+- Add tests proving redirect/final URL with unsupported scheme is rejected:
+  - `file:`;
+  - `ftp:`;
+  - `data:`.
+- Add tests proving redirect/final URL with `.onion` host is denied by default and allowed only when target policy explicitly allows onion hosts.
+- Add tests proving redirect/final URL with already-provided resolved private/link-local IP facts is rejected.
+- Add a direct-flow test proving denied initial targets return a classified service error before provider `getCapabilities()`, provider `acquire()`, provider `release()`, or target transport execution are called.
 
 Green:
-- Implement `TargetAccessGuard`.
+- Implement `TargetAccessGuard` in `src/app/security`.
 - Add target access policy/result types in the owning app/security module or app-layer types when they are public configuration.
-- Apply it before provider acquisition/target execution in the current direct flow where doing so does not require the full step 19 orchestration.
+- Add enum-backed result and rejection models before implementing behavior.
+- Add a reusable guard entry point for initial target URLs.
+- Add a reusable guard entry point for supplied redirect/final URLs.
+- The redirect/final URL guard should accept the current/base URL when needed, so relative and protocol-relative redirect locations can be resolved before policy evaluation.
+- Apply default-deny rules to unsupported schemes, localhost, obvious local hostnames, local/private/link-local IPs, multicast IPs, unspecified IPs, IPv6 unique-local/link-local/loopback/unspecified IPs, and `.onion` hosts.
+- Apply already-provided resolved IP facts to policy evaluation without performing DNS resolution inside the guard.
+- Apply the guard before provider capability lookup/acquire/target execution in the current direct flow where doing so does not require the full step 19 orchestration.
 - Add reusable validation for supplied redirect/final URLs, but do not invent redirect metadata in target transport.
+- Return classified policy-rejection outcomes where practical. Reuse `REJECTED_BY_POLICY` intentionally if that is the current stable outcome, but keep target-access-specific reason codes stable.
 
 Verify:
 - Access guard tests pass.
+- Redirect/final URL guard component tests pass.
+- Direct-flow denied-target smoke test passes.
+- Existing service envelope, direct execution, and provider adapter tests still pass.
 
 ## 17. Redaction
 
