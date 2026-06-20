@@ -1,0 +1,33 @@
+services:
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    container_name: proxy-gateway-local-registry
+    ports:
+      - "4873:4873"
+    volumes:
+      - ./verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+      - verdaccio-storage:/verdaccio/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4873/-/ping').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  consumer:
+    image: node:20-alpine
+    working_dir: /app
+    depends_on:
+      verdaccio:
+        condition: service_healthy
+    volumes:
+      - ./consumer:/app
+      - consumer-node-modules:/app/node_modules
+    environment:
+      NPM_CONFIG_REGISTRY: http://verdaccio:4873
+    command: >
+      sh -lc "npm install --package-lock=false --no-audit --no-fund
+      && npm run smoke"
+
+volumes:
+  verdaccio-storage:
+  consumer-node-modules:

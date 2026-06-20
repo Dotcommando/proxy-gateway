@@ -41,6 +41,7 @@ lerna-debug.log*
 
 # Environment
 **/.env
+.npmrc.local-registry
 
 # Docker Redis non-commitable files
 **/redis/

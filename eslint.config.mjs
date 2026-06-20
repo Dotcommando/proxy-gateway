@@ -13,7 +13,13 @@ const __dirname = path.dirname(__filename);
 
 export default [
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', '.tmp/**'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      '.tmp/**',
+      'e2e/local-registry/consumer/src/**/*.ts',
+    ],
   },
   js.configs.recommended,
   {
@@ -24,6 +30,32 @@ export default [
         ...globals.node,
         ...globals.jest,
         Response: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['e2e/**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
+    files: ['e2e/**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+        Blob: 'readonly',
+        fetch: 'readonly',
+        Headers: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        TextDecoder: 'readonly',
+        TextEncoder: 'readonly',
+        URL: 'readonly',
       },
     },
   },

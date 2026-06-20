@@ -1,0 +1,23 @@
+{
+  "name": "proxy-gateway-local-consumer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "npm run smoke:exports && npm run smoke:types && npm run smoke:esm && npm run smoke:cjs && npm run smoke:node-http && npm run smoke:base64 && npm run smoke:multipart",
+    "smoke:base64": "node src/base64-smoke.mjs",
+    "smoke:esm": "node src/esm-smoke.mjs",
+    "smoke:cjs": "node src/cjs-smoke.cjs",
+    "smoke:exports": "node src/exports-smoke.mjs",
+    "smoke:multipart": "node src/multipart-smoke.mjs",
+    "smoke:node-http": "node src/node-http-smoke.mjs",
+    "smoke:types": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@echospecter/proxy-gateway": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.3",
+    "typescript": "6.0.3"
+  }
+}
