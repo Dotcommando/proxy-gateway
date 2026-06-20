@@ -1434,7 +1434,7 @@ Verify:
 - Runtime dependency check still proves zero external runtime dependencies.
 - Final URL guard contract tests still pass.
 
-### 25.1 Shared Inbound Adapter Contract Harness
+### 25.1 Shared Inbound Adapter Contract Harness - Done
 
 Scope:
 - Define a reusable test harness for inbound adapters without implementing Node/framework adapters yet.
@@ -1455,6 +1455,18 @@ Green:
 Verify:
 - Harness self-tests pass.
 
+Implemented:
+- Added `tests/helpers/inbound-adapter-contract.ts` with a reusable inbound adapter contract harness.
+- Added a fake adapter self-test that runs the harness without adding runtime adapter code.
+- Covered raw JSON byte preservation, multipart byte/boundary preservation, response status/header/body preservation, and service error `details` preservation.
+- Kept helper interfaces test-local; no runtime public contract was added.
+- Checked nested AGENTS.md files; no new durable rule was needed.
+
+Verified:
+- `npm test -- --runTestsByPath tests/inbound-adapter-contract.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ### 25.2 Node HTTP Handler
 
 Scope:
@@ -1466,21 +1478,27 @@ Scope:
 Red:
 - Run the 25.1 contract harness against `createNodeHttpHandler`.
 - Add a test proving the handler does not JSON-parse or pre-read bodies before constructing the Web `Request`.
-- Add a test proving request abort/stream errors are surfaced as stable handler behavior if practical without broad infrastructure.
+- Add a test proving request URL, method, headers, and raw body bytes are converted into a Web `Request`.
+- Add a test proving Web `Response` status, headers, and bytes are written to the Node response.
+- Add a request abort/stream error test only if it can be deterministic with Node built-ins and without broad server infrastructure.
 
 Green:
 - Add minimal Node built-in-only handler implementation.
 - Export it from `src/adapters/inbound` and package root only if intended for v0.1.
+- Use Node built-in `http` types only; do not introduce runtime dependencies.
 
 Verify:
 - Node handler contract tests pass.
 - Existing gateway body/status and final URL guard tests still pass.
+- `npm run typecheck`
+- `npm run lint`
 
 ### 25.3 Node Handler Body/Status/Error Matrix
 
 Scope:
 - Expand Node handler tests with fixtures introduced in steps 24.3 and 24.4.
 - Focus on byte preservation across the Node boundary, not gateway internals.
+- Reuse the 25.1 harness where possible and add Node-server-specific cases only where needed.
 
 Red:
 - Add Node handler tests for JSON text request/response.
@@ -1492,10 +1510,12 @@ Red:
 Green:
 - Fix only Node handler translation issues exposed by these tests.
 - Keep shared fixtures reusable for possible future framework adapters.
+- Do not duplicate gateway body/status compatibility assertions beyond the wrapper boundary.
 
 Verify:
 - Node handler matrix tests pass.
 - Full inbound adapter contract suite passes.
+- Existing gateway body/status and access/redaction tests still pass.
 
 ### 25.4 Dependency-Free Structural Framework Wrapper Decision
 
