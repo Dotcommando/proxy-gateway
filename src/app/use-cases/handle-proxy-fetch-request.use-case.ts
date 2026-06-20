@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ATTEMPT_EXECUTOR_RESULT_KIND,
   GATEWAY_TIMEOUT_MESSAGE,
+  PLANNER_RESULT_KIND,
   PROVIDER_SELECTION_RESULT_KIND,
   PROXY_PLAN_KIND,
   RESPONSE_CODE,
@@ -16,6 +17,7 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
+import { ExecutionPlanner } from '../planning';
 import { RedactionService } from '../redaction';
 import { RetryDecider } from '../retry';
 import { TargetAccessGuard } from '../security';
@@ -70,24 +72,6 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
           retryable: false,
         });
       }
-
-      const providerSelection = selectProviderInstance(
-        this.#options.providers,
-        this.#options.providerSelection?.providerInstanceId,
-      );
-
-      if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED) {
-        return this.#envelopeBuilder.buildServiceError(500, {
-          code: RESPONSE_CODE.NO_PROVIDER_AVAILABLE,
-          message: 'No enabled proxy provider is available.',
-        });
-      }
-      if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND) {
-        return this.#envelopeBuilder.buildServiceError(500, {
-          code: RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND,
-          message: `Provider instance "${providerSelection.providerInstanceId}" was not found or is disabled.`,
-        });
-      }
       if (!this.#options.transport) {
         return this.#envelopeBuilder.buildServiceError(500, {
           code: RESPONSE_CODE.TRANSPORT_NOT_CONFIGURED,
@@ -95,10 +79,12 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
         });
       }
 
-      const provider = providerSelection.provider;
       const requestId = this.#options.random?.createId() ?? randomUUID();
+      const executionPlan = await this.#createExecutionPlan();
 
-      await provider.adapter.getCapabilities();
+      if (executionPlan instanceof Response) {
+        return executionPlan;
+      }
 
       const attemptExecutor = new AttemptExecutor({
         bodyBufferManager: this.#bodyBufferManager,
@@ -114,7 +100,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       const executorResult = await attemptExecutor.execute({
         context: parsed.context,
         parentSignal: totalScope.signal,
-        plan: createSingleAttemptPlan(provider),
+        plan: executionPlan,
         requestId,
         target,
         ...(this.#options.timeouts?.attemptTimeoutMs === undefined
@@ -147,6 +133,47 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     } finally {
       totalScope?.dispose();
     }
+  }
+
+  async #createExecutionPlan(): Promise<ProxyExecutionPlan | Response> {
+    if (this.#options.plan !== undefined) {
+      const plannerResult = await new ExecutionPlanner({
+        exitVerifierAvailable: this.#options.exitVerifier !== undefined,
+        providers: this.#options.providers,
+      }).plan({ plan: this.#options.plan });
+
+      if (plannerResult.kind === PLANNER_RESULT_KIND.REJECTED) {
+        return this.#envelopeBuilder.buildServiceError(500, {
+          code: plannerResult.code,
+          message: plannerResult.message,
+          retryable: false,
+        });
+      }
+
+      return plannerResult.plan;
+    }
+
+    const providerSelection = selectProviderInstance(
+      this.#options.providers,
+      this.#options.providerSelection?.providerInstanceId,
+    );
+
+    if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NONE_ENABLED) {
+      return this.#envelopeBuilder.buildServiceError(500, {
+        code: RESPONSE_CODE.NO_PROVIDER_AVAILABLE,
+        message: 'No enabled proxy provider is available.',
+      });
+    }
+    if (providerSelection.kind === PROVIDER_SELECTION_RESULT_KIND.NOT_FOUND) {
+      return this.#envelopeBuilder.buildServiceError(500, {
+        code: RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND,
+        message: `Provider instance "${providerSelection.providerInstanceId}" was not found or is disabled.`,
+      });
+    }
+
+    await providerSelection.provider.adapter.getCapabilities();
+
+    return createSingleAttemptPlan(providerSelection.provider);
   }
 }
 

@@ -1,4 +1,9 @@
 export { createProxyGateway } from './app/create-proxy-gateway';
+export type {
+  ProxyFallbackPlanConfig,
+  ProxyPlanAttemptConfig,
+  ProxyPlanConfig,
+} from './app/planning';
 export type { RedactionPolicy } from './app/redaction';
 export type {
   BodyBufferingPolicy,

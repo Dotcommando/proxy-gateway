@@ -27,6 +27,8 @@ Keep app-layer collaborators narrow. Do not put domain models, port contracts, w
 
 `HandleProxyFetchRequestUseCase` must not grow provider acquire/release, target transport, retry-loop, or lease-verification details inline when those details belong to dedicated app collaborators.
 
+Configured gateway plans must flow through `ExecutionPlanner` before attempt execution. Temporary direct provider selection may remain only as no-plan compatibility behavior.
+
 `AttemptExecutor` belongs in `src/app/use-cases`. It consumes a `ProxyExecutionPlan`, acquires provider leases, checks route support, executes target transport, buffers target responses, applies timeout scopes, classifies outcomes, and releases leases. It returns app-level execution results, not Web `Response` objects.
 
 `AttemptExecutor` must not parse proxy-fetch envelopes, perform route matching, load configuration, perform DNS/GeoIP intelligence, know provider-specific syntax, or build service response envelopes.

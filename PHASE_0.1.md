@@ -1171,6 +1171,13 @@ Verify:
 
 ## 24. Full Direct-Route Gateway Flow
 
+Detailed split:
+- 24.1 wires planner-owned execution plans into `HandleProxyFetchRequestUseCase`.
+- 24.2 covers full gateway retry/fallback/verification through `ProxyGatewayOptions`.
+- 24.3 covers target access ordering and redaction/no-mutation integration.
+- 24.4 covers multipart/null-body/target HTTP status integration through the full gateway path.
+- 24.5 covers redirect/final URL guard contract shape without implementing redirect-chain orchestration.
+
 Red:
 - Add integration tests that cover parse, normalize, target access, match, plan, acquire, optional verify, execute, classify, retry/fallback, redact diagnostics, and build response.
 - Cover text, JSON base64, multipart binary request, multipart binary response, null-body statuses, target HTTP error statuses, timeout/abort, target access denial, redacted service errors, and geo/verification mismatch where a mock verifier is configured.
@@ -1194,6 +1201,121 @@ Green:
 Verify:
 - Direct-route integration tests pass.
 - Existing unit tests for parser, normalizer, target access, planner, retry, timeout, classifier, redaction, multipart, and attempt executor still pass.
+
+### 24.1 Planner-Owned Execution Plan In Gateway Flow - Done
+
+Scope:
+- Add an explicit gateway option for a `ProxyPlanConfig`.
+- When a plan is configured, `HandleProxyFetchRequestUseCase` uses `ExecutionPlanner` to produce a `ProxyExecutionPlan`.
+- Keep the temporary `providerSelection.providerInstanceId` hook only as the no-plan fallback bridge.
+- Missing transport must still return before planner/provider capability lookup.
+- Planner rejection should return a stable service error without provider acquire or target transport execution.
+
+Red:
+- Add gateway integration tests proving a configured plan selects a provider without `providerSelection.providerInstanceId`.
+- Add a test proving fallback attempts from a configured plan execute through the gateway.
+- Add a test proving strict verified-after-acquire geo can plan when `exitVerifier` is configured.
+- Add a test proving planner rejection returns a stable service error before acquire/transport.
+- Add a test proving no configured transport returns before provider capability lookup.
+
+Green:
+- Add `plan?: ProxyPlanConfig` to gateway options.
+- Wire `ExecutionPlanner` into the gateway use-case when a plan is present.
+- Keep the existing temporary direct hook for no-plan behavior.
+
+Verify:
+- New full gateway plan integration tests pass.
+- Existing multiple-provider, planner, direct-route hardening, and attempt executor tests still pass.
+
+Implemented:
+- Added `plan?: ProxyPlanConfig` to `ProxyGatewayOptions` and exported plan config types from the package entrypoint.
+- Added gateway plan-flow integration tests for configured provider selection, fallback, strict verified-after-acquire geo with verifier, planner rejection, and missing transport ordering.
+- Wired `ExecutionPlanner` into `HandleProxyFetchRequestUseCase` when a plan is present.
+- Kept `providerSelection.providerInstanceId` only as no-plan fallback behavior.
+- Confirmed missing transport returns before planner/provider capability lookup.
+
+Verified:
+- `npm test -- --runTestsByPath tests/gateway-plan-flow.test.ts`
+- `npm test -- --runTestsByPath tests/gateway-plan-flow.test.ts tests/multiple-provider-instances.test.ts tests/execution-planner.test.ts tests/direct-route-hardening.test.ts tests/attempt-executor.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
+### 24.2 Full Gateway Retry/Fallback/Verification
+
+Scope:
+- Exercise the step 23 executor retry/fallback/verification behavior through `createProxyGateway`.
+- Use configured `plan`, `exitVerifier`, and `retrySafety`.
+- Avoid retesting executor internals already covered by step 23.
+- Keep this step focused on use-case wiring and option propagation; do not add new retry rules here.
+
+Red:
+- Add a gateway integration test where one configured attempt retries the same provider after a retryable target-network failure.
+- Add a gateway integration test where retry is denied and fallback moves to the next configured attempt.
+- Add gateway integration tests for verification success, verification mismatch with fallback, and missing verifier when verification is required.
+- Add a gateway integration test proving unsafe POST without `idempotency-key` does not retry even when `retryOn` includes the classified condition.
+
+Green:
+- Pass gateway options through to already-built app collaborators if a missing option path is exposed by tests.
+- Keep parser, normalizer, builder, and target access responsibilities in the use-case.
+
+Verify:
+- Full gateway retry/fallback/verification tests pass.
+- Existing attempt executor and retry decider tests still pass.
+
+### 24.3 Target Access And Redaction Integration
+
+Scope:
+- Prove denied initial targets return before provider/planner/executor side effects.
+- Prove service-error diagnostics are redacted.
+- Prove successful target response body/header data is not redacted or mutated.
+- Keep access checks before planning and provider capability lookup.
+
+Red:
+- Add denied-target ordering tests for plan-configured and no-plan fallback flows.
+- Add redacted service-error integration tests using headers, route auth, and URL credentials.
+- Add successful-response no-mutation tests for headers and body.
+
+Green:
+- Adjust use-case ordering only if tests prove side effects happen too early.
+- Keep redaction in diagnostics/service errors, not successful target responses.
+
+Verify:
+- Target access and redaction integration tests pass.
+
+### 24.4 Full Gateway Body/Status Compatibility
+
+Scope:
+- Cover full gateway path for text, JSON base64, multipart binary request, multipart binary response, null-body statuses, and target HTTP error statuses.
+- Use proxy-fetch-compatible request shapes already covered by lower-level parser/builder tests.
+- Confirm compatibility through `createProxyGateway`, not by duplicating parser/builder unit coverage.
+
+Red:
+- Add integration tests for JSON text request/response through the full path.
+- Add integration tests for JSON base64 request body normalization through the full path.
+- Add integration tests for multipart binary request and multipart binary response through the full path.
+- Add integration tests for null-body statuses 204, 205, and 304.
+- Add integration tests proving target HTTP error statuses still return `ok: true` service envelopes by default.
+
+Green:
+- Reuse existing parser, normalizer, executor, and builder behavior.
+
+Verify:
+- Body/status integration tests pass.
+
+### 24.5 Redirect/Final URL Guard Contract
+
+Scope:
+- Make redirect/final URL guard responsibility explicit in target transport contracts.
+- Do not implement full redirect-chain orchestration in core v0.1 unless explicitly needed.
+
+Red:
+- Add tests or type-level contract checks proving guard methods/contract fields are available to transports.
+
+Green:
+- Add minimal port contract shape for redirect/final URL guard if missing.
+
+Verify:
+- Contract tests pass.
 
 ## 25. Thin Wrapper Contract Suite
 

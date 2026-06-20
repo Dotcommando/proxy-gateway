@@ -6,6 +6,7 @@ import type {
   RandomPort,
   TargetTransportPort,
 } from '../../ports/outbound';
+import type { ProxyPlanConfig } from '../planning';
 import type { RedactionPolicy } from '../redaction';
 
 export interface BodyBufferingPolicy {
@@ -20,6 +21,7 @@ export interface BodyBufferingPolicy {
 export interface ProxyGatewayOptions {
   bodyBuffering?: BodyBufferingPolicy;
   exitVerifier?: ProxyExitVerifierPort;
+  plan?: ProxyPlanConfig;
   providerSelection?: ProviderSelectionConfig;
   providers: ProxyProviderInstance[];
   random?: RandomPort;

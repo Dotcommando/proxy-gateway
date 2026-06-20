@@ -18,6 +18,8 @@ Request
 
 It may build Web `Response` objects through envelope builders. It must not inline provider acquire/release, transport execution, retry-loop, or lease-verification details when those belong to app collaborators.
 
+When `ProxyGatewayOptions.plan` is configured, this use-case must obtain the executable attempt plan from `ExecutionPlanner`. The temporary `providerSelection.providerInstanceId` bridge is only for no-plan fallback behavior until route/pipeline planning fully owns default direct-route selection.
+
 ## AttemptExecutor
 
 Owns attempt execution over a `ProxyExecutionPlan`:
