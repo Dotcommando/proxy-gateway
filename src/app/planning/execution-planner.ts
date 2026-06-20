@@ -1,4 +1,4 @@
-import { PLANNER_RESULT_KIND, PROXY_DNS_MODE, PROXY_PLAN_KIND, RESPONSE_CODE } from '../../constants';
+import { PLANNER_RESULT_KIND, PROXY_DNS_MODE, PROXY_PLAN_KIND, RESPONSE_CODE, RETRY_CONDITION } from '../../constants';
 import type {
   ProxyExecutionAttempt,
   ProxyExecutionPlan,
@@ -16,6 +16,7 @@ export interface ProxyPlanAttemptConfig {
   metadata?: Record<string, unknown>;
   provider?: string;
   requirements?: ProxyRouteRequirements;
+  retryOn?: RETRY_CONDITION[];
   timeoutMs?: number;
 }
 
@@ -175,6 +176,9 @@ function createExecutionAttempt(
   }
   if (attemptConfig.requirements !== undefined) {
     attempt.requirements = attemptConfig.requirements;
+  }
+  if (attemptConfig.retryOn !== undefined) {
+    attempt.retryOn = attemptConfig.retryOn;
   }
   if (attemptConfig.timeoutMs !== undefined) {
     attempt.timeoutMs = attemptConfig.timeoutMs;

@@ -14,9 +14,16 @@ export interface ProxyGatewayOptions {
   providerSelection?: ProviderSelectionConfig;
   providers: ProxyProviderInstance[];
   random?: RandomPort;
+  retrySafety?: RetrySafetyPolicy;
   transport?: TargetTransportPort;
 }
 
 export interface ProviderSelectionConfig {
   providerInstanceId?: string;
+}
+
+export interface RetrySafetyPolicy {
+  requireIdempotencyKeyForUnsafeRetries?: boolean;
+  retryUnsafeMethods?: boolean;
+  unsafeMethods?: string[];
 }

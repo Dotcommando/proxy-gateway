@@ -471,7 +471,7 @@ Green:
 Verify:
 - Classification tests pass.
 
-## 14. Retry Safety
+## 14. Retry Safety - Done
 
 Detailed scope:
 - Keep retry decision logic in `src/app/retry`.
@@ -495,6 +495,18 @@ Detailed scope:
 - Proxy auth errors may fallback to a different provider instance when policy allows, but must not retry the same provider instance.
 - `GATEWAY_ERROR` is a legacy compatibility outcome. New retry tests should use the specific outcomes produced by `ResultClassifier`.
 - Keep retry output executable by a later attempt executor: decision kind, optional retry condition, optional next attempt index/provider id, and reason/code.
+
+Implemented:
+- Added `src/app/retry/RetryDecider`.
+- Added `RETRY_DECISION_KIND` and `RETRY_DECISION_REASON` package enums.
+- Reused `RETRY_CONDITION` from result classification instead of creating a parallel condition model.
+- Added `retryOn?: RETRY_CONDITION[]` to execution attempts and plan attempt configs.
+- Carried `retryOn` through `ExecutionPlanner`.
+- Added `RetrySafetyPolicy` to app-layer configuration types and `ProxyGatewayOptions`.
+- Implemented safe defaults: HTTP statuses do not retry unless configured, unsafe methods do not retry by default, idempotency keys are required when configured, non-replayable bodies do not retry, caller abort/gateway timeout/started response stream do not retry.
+- Implemented same-attempt retry while `maxAttempts` remains and fallback to later planned attempts.
+- Implemented proxy-auth behavior that forbids same-provider retry but allows fallback to another planned provider when policy allows.
+- Added retry decision tests.
 
 Red:
 - Add tests that retry decision kinds use package enums, not inline string literals.

@@ -125,6 +125,23 @@ export enum RETRY_CONDITION {
   TARGET_TIMEOUT = 'target-timeout',
 }
 
+export enum RETRY_DECISION_KIND {
+  DO_NOT_RETRY = 'do-not-retry',
+  FALLBACK_TO_NEXT_ATTEMPT = 'fallback-to-next-attempt',
+  RETRY_SAME_ATTEMPT = 'retry-same-attempt',
+}
+
+export enum RETRY_DECISION_REASON {
+  ATTEMPT_NOT_FOUND = 'attempt-not-found',
+  IDEMPOTENCY_KEY_REQUIRED = 'idempotency-key-required',
+  NO_FALLBACK_ATTEMPT_AVAILABLE = 'no-fallback-attempt-available',
+  NO_RETRY_CONDITION = 'no-retry-condition',
+  NON_RETRYABLE_OUTCOME = 'non-retryable-outcome',
+  REQUEST_BODY_NOT_REPLAYABLE = 'request-body-not-replayable',
+  RETRY_CONDITION_NOT_CONFIGURED = 'retry-condition-not-configured',
+  UNSAFE_METHOD = 'unsafe-method',
+}
+
 export enum STRING_MATCHER_KIND {
   EXACT = 'exact',
   GLOB = 'glob',

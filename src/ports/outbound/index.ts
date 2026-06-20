@@ -8,6 +8,7 @@ import {
   PROXY_ROUTE_AUTH_MODE,
   PROXY_ROUTE_HOP_KIND,
   PROXY_ROUTE_KIND,
+  RETRY_CONDITION,
 } from '../../constants';
 
 export interface GatewayExecutionContext {
@@ -109,6 +110,7 @@ export interface ProxyExecutionAttempt {
   providerInstanceId: string;
   providerKind?: string;
   requirements?: ProxyRouteRequirements;
+  retryOn?: RETRY_CONDITION[];
   timeoutMs?: number;
 }
 
