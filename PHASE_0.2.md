@@ -239,7 +239,7 @@ Next three steps reassessment:
 - Step 8 is ready after Step 7. It should write records using the same key derivation inputs that Step 7 reads, including provider instance id where provider-scoped keys are in use.
 - Step 9 remains ready. It should verify that identity requirements survive session-derived provider pinning and still reach `ProxyAcquireInput.requirements.identity`.
 
-## 7. Session-Aware Planning
+## 7. Session-Aware Planning - Completed
 
 Purpose:
 - Make sticky sessions influence provider selection and attempt planning.
@@ -259,6 +259,17 @@ Green:
 Verify:
 - Session-aware planning tests pass.
 - Existing route/planner retry/fallback tests still pass.
+
+Progress:
+- Added gateway integration tests for session-derived first-attempt pinning, incompatible explicit provider rejection, fallback preservation, and `requestNewIdentity` bypass.
+- Wired `SessionManager.read()` into configured `ProxyGatewayOptions.plan` flow before `ExecutionPlanner`.
+- Translated session `HIT` results into first-attempt provider constraints while preserving fallback attempts and planner capability checks.
+- Checked nested AGENTS files and updated `src/app/use-cases/AGENTS.md` for session read-path planning ownership.
+
+Next three steps reassessment:
+- Step 8 is ready. It must write session records after successful attempts using the same key inputs used by Step 7; if provider-scoped keys are present, write with the successful provider instance id.
+- Step 9 remains ready. It should explicitly cover that Step 7 pinning does not remove `requirements.identity` before provider `acquire()`.
+- Step 10 is still mostly public contract work, but it should account for the fact that direct `options.plan` now has session read-path behavior while declarative routes are not wired yet.
 
 ## 8. Session Write Path After Successful Attempt
 

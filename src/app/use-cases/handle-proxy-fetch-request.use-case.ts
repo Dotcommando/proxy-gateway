@@ -11,6 +11,8 @@ import {
 } from '../../constants';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
+  GatewayExecutionContext,
+  GatewayTargetRequest,
   ProxyExecutionPlan,
   ProxyProviderInstance,
   TargetFinalUrlGuardPort,
@@ -18,10 +20,11 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchEnvelopeBuilder, ProxyFetchEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
-import { ExecutionPlanner } from '../planning';
+import { ExecutionPlanner, type ProxyPlanAttemptConfig, type ProxyPlanConfig } from '../planning';
 import { RedactionService } from '../redaction';
 import { RetryDecider } from '../retry';
 import { TargetAccessGuard } from '../security';
+import { SESSION_MANAGER_READ_RESULT_KIND, SessionManager } from '../sessions';
 import {
   mapTimeoutObservationToOutcome,
   readTimeoutObservation,
@@ -81,7 +84,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
       }
 
       const requestId = this.#options.random?.createId() ?? randomUUID();
-      const executionPlan = await this.#createExecutionPlan();
+      const executionPlan = await this.#createExecutionPlan(target, parsed.context);
 
       if (executionPlan instanceof Response) {
         return executionPlan;
@@ -140,12 +143,21 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     }
   }
 
-  async #createExecutionPlan(): Promise<ProxyExecutionPlan | Response> {
+  async #createExecutionPlan(
+    target: GatewayTargetRequest,
+    context: GatewayExecutionContext,
+  ): Promise<ProxyExecutionPlan | Response> {
     if (this.#options.plan !== undefined) {
+      const plan = await this.#applySessionPin(this.#options.plan, target, context);
+
+      if (plan instanceof Response) {
+        return plan;
+      }
+
       const plannerResult = await new ExecutionPlanner({
         exitVerifierAvailable: this.#options.exitVerifier !== undefined,
         providers: this.#options.providers,
-      }).plan({ plan: this.#options.plan });
+      }).plan({ plan });
 
       if (plannerResult.kind === PLANNER_RESULT_KIND.REJECTED) {
         return this.#envelopeBuilder.buildServiceError(500, {
@@ -179,6 +191,59 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
     await providerSelection.provider.adapter.getCapabilities();
 
     return createSingleAttemptPlan(providerSelection.provider);
+  }
+
+  async #applySessionPin(
+    plan: ProxyPlanConfig,
+    target: GatewayTargetRequest,
+    context: GatewayExecutionContext,
+  ): Promise<ProxyPlanConfig | Response> {
+    const [firstAttempt, ...remainingAttempts] = plan.attempts;
+    const identity = firstAttempt?.requirements?.identity;
+
+    if (
+      this.#options.sessionStore === undefined
+      || firstAttempt === undefined
+      || identity === undefined
+    ) {
+      return plan;
+    }
+
+    const sessionResult = await new SessionManager({
+      store: this.#options.sessionStore,
+    }).read({
+      cleanupExpired: true,
+      context,
+      identity,
+      now: new Date(),
+      providers: this.#options.providers,
+      targetUrl: target.url,
+    });
+
+    if (sessionResult.kind !== SESSION_MANAGER_READ_RESULT_KIND.HIT) {
+      return plan;
+    }
+    if (
+      sessionResult.providerInstanceId === undefined
+      || !attemptAcceptsSessionProvider(firstAttempt, sessionResult.providerInstanceId)
+    ) {
+      return this.#envelopeBuilder.buildServiceError(500, {
+        code: RESPONSE_CODE.NO_PLANNABLE_PROVIDER,
+        message: 'Sticky session provider is incompatible with the first plan attempt.',
+        retryable: false,
+      });
+    }
+
+    return {
+      ...plan,
+      attempts: [
+        {
+          ...firstAttempt,
+          provider: sessionResult.providerInstanceId,
+        },
+        ...remainingAttempts,
+      ],
+    };
   }
 
   #createFinalUrlGuard(): TargetFinalUrlGuardPort {
@@ -223,6 +288,26 @@ function createSingleAttemptPlan(provider: ProxyProviderInstance): ProxyExecutio
     ],
     kind: PROXY_PLAN_KIND.FALLBACK,
   };
+}
+
+function attemptAcceptsSessionProvider(
+  attempt: ProxyPlanAttemptConfig,
+  providerInstanceId: string,
+): boolean {
+  if (attempt.provider !== undefined && attempt.provider !== providerInstanceId) {
+    return false;
+  }
+  if (
+    attempt.requirements?.providerInstanceIds !== undefined
+    && !attempt.requirements.providerInstanceIds.includes(providerInstanceId)
+  ) {
+    return false;
+  }
+  if (attempt.requirements?.excludeProviderInstanceIds?.includes(providerInstanceId) === true) {
+    return false;
+  }
+
+  return true;
 }
 
 function buildTimeoutServiceError(
