@@ -80,4 +80,4 @@ Real DNS, GeoIP, IP intelligence, target probing, and HTTP exit verifier impleme
 
 `ProxySessionStorePort` is an outbound persistence contract for sticky/session coordination. It must remain provider-agnostic and batch-oriented (`getMany`, `setMany`, `deleteMany`, `touchMany`).
 
-Session records identify provider instances by provider instance id and provider kind. Store implementations should persist records; app-level session coordination owns expiry interpretation, provider compatibility checks, and request-new-identity policy.
+Session records identify provider instances by provider instance id and provider kind. `expiresAt` is required on every record. Store implementations should persist records and expiration data; app-level session coordination owns expiry interpretation, provider compatibility checks, and request-new-identity policy.

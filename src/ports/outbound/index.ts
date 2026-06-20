@@ -446,7 +446,7 @@ export interface TargetTransportPort {
 }
 
 export interface ProxySessionRecord {
-  expiresAt?: Date;
+  expiresAt: Date;
   identity?: ProxyIdentityRequirements;
   key: string;
   metadata?: Record<string, unknown>;

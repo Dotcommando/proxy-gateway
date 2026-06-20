@@ -136,7 +136,7 @@ Next three steps reassessment:
 - Step 5 is already partially covered by Step 1. It should focus on full memory-store behavior tests and implementation hardening instead of creating the factory from scratch.
 - Step 6 should use `SessionKeyFactory` for read-path lookup and should keep expiry interpretation and provider compatibility checks in app-level session coordination.
 
-## 4. Session Store Port
+## 4. Session Store Port - Completed
 
 Purpose:
 - Add the outbound port that application code or dependency-free adapters can implement.
@@ -161,6 +161,17 @@ Verify:
 - Port type tests pass.
 - Package public export tests pass.
 
+Progress:
+- Added port contract tests for batch `setMany`, `getMany`, `touchMany`, and `deleteMany`.
+- Added public type coverage for session key, provider instance id, provider kind, required expiration, identity requirements snapshot, and metadata.
+- Tightened `ProxySessionRecord.expiresAt` from optional to required.
+- Checked nested AGENTS files and updated `src/ports/outbound/AGENTS.md` for the required expiration field and app-owned expiry interpretation.
+
+Next three steps reassessment:
+- Step 5 is partially covered by Step 4's basic batch behavior test. It should focus on memory-store-specific behavior: overwrite semantics, multi-record touch/delete edge cases, deterministic expiry storage, and no cross-session leakage.
+- Step 6 is ready. It should treat expired records as missing in the app-level session manager, using the required `expiresAt` field rather than pushing expiry filtering into stores.
+- Step 7 is ready after Step 6. It should consume session-manager provider pins without changing the `ProxySessionStorePort` contract.
+
 ## 5. Dependency-Free Memory Session Store
 
 Purpose:
@@ -168,15 +179,15 @@ Purpose:
 
 Red:
 - Add tests for `createMemoryProxySessionStore()` in `src/adapters/outbound`.
-- Cover set/get/delete/touch for multiple records.
-- Cover TTL expiration using an injected clock or deterministic timestamp input.
+- Extend beyond the Step 4 port contract by covering multi-record overwrite, partial touch/delete, and missing-key behavior.
+- Cover expiration timestamp storage without making the store interpret expiry.
 - Cover overwrite behavior for the same session key.
 - Cover no cross-session leakage.
 
 Green:
 - Complete the existing dependency-free memory session store in `src/adapters/outbound`.
 - Export it from `src/adapters/outbound` and the package root only if intended as public API.
-- Do not read globals for time if a clock/now input is available through the port.
+- Do not read globals for time; the store persists caller-provided `expiresAt` values and leaves expiry interpretation to app-level session coordination.
 
 Verify:
 - Memory store tests pass.
