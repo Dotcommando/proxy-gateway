@@ -19,6 +19,7 @@ Keep the source tree aligned with the hexagonal architecture rules in `AGENTS.md
 - `src/app/normalization`
 - `src/app/pipeline`
 - `src/app/planning`
+- `src/app/redaction`
 - `src/app/retry`
 - `src/app/security`
 - `src/app/timeouts`
@@ -532,7 +533,7 @@ Green:
 Verify:
 - Retry tests pass.
 
-## 15. Total Timeout, Attempt Timeout, and Abort
+## 15. Total Timeout, Attempt Timeout, and Abort - Done
 
 Detailed scope:
 - Keep timeout orchestration in `src/app/timeouts`.
@@ -550,6 +551,18 @@ Detailed scope:
 - Timer cleanup and abort listener cleanup are required and must be test-covered with deterministic fake timers or controlled promises.
 - Timeout/abort observations should map to the outcomes and service-error mappings already introduced by `ResultClassifier`.
 - Avoid using real sleeps in tests; use controlled promises, fake timers, or immediate abort signals.
+
+Implemented:
+- Added `src/app/timeouts/TimeoutController`.
+- Added `TIMEOUT_OBSERVATION_KIND` package enum and timeout message constants.
+- Added `TimeoutPolicy` to app-layer config and `ProxyGatewayOptions`.
+- Added total-request timeout from `proxy-fetch` envelope `options.timeoutMs`, falling back to configured total timeout when present.
+- Added per-attempt timeout for the current direct-route vertical slice.
+- Passed the same attempt `AbortSignal` through provider `acquire()` and target transport execution.
+- Added timeout/abort observation mapping to `PROXY_ATTEMPT_RESULT_OUTCOME` values consumed by `ResultClassifier`.
+- Returned classified service errors for caller abort, total gateway timeout, and attempt timeout.
+- Released acquired leases after transport-side timeout/abort where a lease exists.
+- Added deterministic fake-timer tests for cleanup, total timeout, caller abort, attempt signal propagation, and attempt timeout release.
 
 Red:
 - Add tests that timeout and abort observations map to existing `PROXY_ATTEMPT_RESULT_OUTCOME` enum values.
@@ -576,6 +589,10 @@ Verify:
 
 Detailed scope:
 - Keep target access policy enforcement in `src/app/security`.
+- Add package enums/constants before behavior:
+  - `TARGET_ACCESS_RESULT_KIND`;
+  - `TARGET_ACCESS_REJECTION_REASON`;
+  - stable response code for denied targets, unless existing `REJECTED_BY_POLICY` is intentionally reused in tests.
 - This step is SSRF risk reduction for target URLs. It must not become DNS intelligence, GeoIP, or network probing.
 - The guard may inspect:
   - normalized target URL scheme/host/port;
@@ -589,6 +606,9 @@ Detailed scope:
 - Redirect guarding in v0.1 should be implemented as a reusable guard method for a supplied redirect URL/final URL. Full redirect-chain integration waits until target transport exposes redirect information.
 - Rejections should use stable response codes and classified policy-rejection outcomes where practical.
 - Keep IP parsing dependency-free and focused: IPv4 loopback/private/link-local/multicast/unspecified, IPv6 loopback/link-local/unique-local/unspecified, and bracketed IPv6 URL hosts.
+- Keep new rejection messages in package constants or enum-backed reason codes. Do not add free-form string reasons.
+- Integration should run before provider capability lookup/acquire in the current direct flow, so denied targets do not cause provider side effects.
+- If integration would force a broad use-case rewrite, keep the guard fully tested as a component and add one direct-flow smoke test only.
 
 Red:
 - Add tests that target access result kinds and stable rejection codes use package enums.
@@ -599,6 +619,7 @@ Red:
 - Add explicit-allow tests for policies that intentionally permit local/private targets.
 - Add tests that already-resolved private IP facts cause rejection even when the hostname itself is public-looking.
 - Add redirect/final-URL guard tests using a supplied redirect URL, without requiring target transport redirect-chain integration.
+- Add a direct-flow test proving denied targets return a classified service error before provider acquisition.
 
 Green:
 - Implement `TargetAccessGuard`.
@@ -611,18 +632,63 @@ Verify:
 
 ## 17. Redaction
 
+Detailed scope:
+- Keep redaction in `src/app/redaction`.
+- This step must centralize safe presentation of sensitive data. It should not replace route matching, target access checks, or result classification.
+- Add package constants/enums before behavior where values cross modules:
+  - redaction placeholder, such as `REDACTED_VALUE`;
+  - redaction target kinds/reasons if they are exposed in diagnostics.
+- Redact sensitive headers case-insensitively:
+  - `authorization`;
+  - `proxy-authorization`;
+  - `cookie`;
+  - `set-cookie`;
+  - `x-api-key`.
+- Redact sensitive query parameters case-insensitively:
+  - `token`;
+  - `access_token`;
+  - `api_key`;
+  - `key`;
+  - `secret`;
+  - `password`.
+- Redact route auth credentials and provider secret-like metadata. Reuse route diagnostic rules from step 12 where possible instead of serializing raw routes.
+- Keep behavior dependency-free and deterministic.
+- Apply redaction at service-error diagnostic boundaries that already exist. Full logger/telemetry emission can remain later if ports are not wired yet.
+- Avoid changing successful response envelopes in this step. Redaction is for diagnostics/errors/events, not target response body/header mutation.
+
 Red:
-- Add tests for redacting sensitive headers, sensitive query parameters, and route credentials.
-- Add tests that service errors, logs, telemetry events, and diagnostics use redacted values.
+- Add tests that redaction constants/enums are used instead of inline placeholder strings.
+- Add tests for sensitive header redaction with mixed-case header names.
+- Add tests for sensitive query parameter redaction while preserving non-sensitive parameters.
+- Add tests for route auth redaction: username, password, token, and proxy authorization material must not appear.
+- Add tests for nested metadata redaction of obvious secret-like keys.
+- Add tests that result-classifier diagnostics or service-error details use `RedactionService` without regressing the safe route diagnostics from step 12.
+- Add tests that successful target response headers/bodies are not redacted or mutated by this service.
 
 Green:
 - Implement `RedactionService`.
-- Apply it at service-error, event, and diagnostic boundaries.
+- Move any step-13 local redaction constants into the shared redaction module/constants where appropriate.
+- Apply it at service-error, event, and diagnostic boundaries that exist today.
+- Keep logger/telemetry integration scoped to helpers if concrete logger/telemetry ports are not wired yet.
 
 Verify:
 - Redaction tests pass.
 
 ## 18. Multipart Request Parser and Response Builder
+
+Detailed scope:
+- Keep proxy-fetch wire parsing/building in `src/app/envelopes`.
+- Multipart support must remain dependency-free.
+- This step must implement the receiving side for all multipart shapes emitted by `@echospecter/proxy-fetch`:
+  - `meta` JSON part first for streaming multipart;
+  - binary `body` part with raw bytes;
+  - `request.body.kind: "binary"` and `partName: "body"` in meta;
+  - `proxy-fetch-stream-*` boundary compatibility for stream uploads.
+- Keep JSON-base64 support from earlier steps intact; multipart must not regress JSON envelope behavior.
+- Reuse body buffering limits for multipart binary bodies. Do not buffer unlimited streams.
+- Multipart response building should produce a `meta` part and binary `body` part when response body policy chooses multipart. If v0.1 still defaults to JSON base64 for binary responses, document that in tests and keep multipart response builder as an explicit builder path.
+- Use constants for part names, content-type prefixes, CRLF-related serializer strings where shared, and stable multipart parser errors.
+- Tests should use byte-level assertions for binary round trips and boundary preservation.
 
 Red:
 - Add multipart request tests for `meta` JSON part, raw binary `body` part, missing required parts, byte-preserving binary round trip, and body-size enforcement.
@@ -633,11 +699,14 @@ Red:
 - Add multipart streaming tests for the exact streaming shape: `multipart/form-data` content type, `proxy-fetch-stream-*` boundary prefix, `meta` JSON part first, `body` binary part second, and `application/octet-stream` body part content type.
 - Add tests that multipart parsing does not require buffering the entire incoming service request before body-limit policy is applied.
 - Reuse the exact `request.body.kind: "binary"` / `response.body.kind: "binary"` meta shape from the `@echospecter/proxy-fetch` wire contract.
+- Add regression tests proving JSON text/null/base64 requests still parse unchanged after multipart parser dispatch is introduced.
 
 Green:
 - Implement multipart parsing for the service contract.
 - Implement multipart response building.
 - Reuse body buffering decisions for multipart binary content.
+- Add parser dispatch by `Content-Type` without framework/body-parser dependencies.
+- Keep parser errors stable and classified as invalid proxy-fetch requests.
 
 Verify:
 - Multipart tests pass.

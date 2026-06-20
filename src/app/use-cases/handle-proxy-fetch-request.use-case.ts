@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { PROVIDER_SELECTION_RESULT_KIND, PROXY_ATTEMPT_RESULT_OUTCOME, RESPONSE_CODE } from '../../constants';
+import {
+  GATEWAY_TIMEOUT_MESSAGE,
+  PROVIDER_SELECTION_RESULT_KIND,
+  PROXY_ATTEMPT_RESULT_OUTCOME,
+  RESPONSE_CODE,
+} from '../../constants';
 import type { ProxyGateway } from '../../ports/inbound';
 import type {
   GatewayTargetRequest,
@@ -12,6 +17,13 @@ import type {
 import { BodyBufferManager } from '../buffering/body-buffer-manager';
 import { ResultClassifier } from '../classification';
 import { ProxyFetchJsonEnvelopeBuilder, ProxyFetchJsonEnvelopeParser } from '../envelopes/proxy-fetch-json-envelope';
+import {
+  mapTimeoutObservationToOutcome,
+  readTimeoutObservation,
+  TimeoutController,
+  type TimeoutObservation,
+  type TimeoutScope,
+} from '../timeouts';
 import type { ProxyGatewayOptions } from '../types';
 
 export class HandleProxyFetchRequestUseCase implements ProxyGateway {
@@ -20,6 +32,7 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   readonly #jsonEnvelopeParser = new ProxyFetchJsonEnvelopeParser();
   readonly #options: ProxyGatewayOptions;
   readonly #resultClassifier = new ResultClassifier();
+  readonly #timeoutController = new TimeoutController();
 
   constructor(options: ProxyGatewayOptions) {
     this.#options = options;
@@ -27,8 +40,16 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
   }
 
   async handle(request: Request): Promise<Response> {
+    let totalScope: TimeoutScope | undefined;
+
     try {
       const parsed = await this.#jsonEnvelopeParser.parse(request);
+      const totalTimeoutMs = parsed.options.timeoutMs ?? this.#options.timeouts?.totalTimeoutMs;
+
+      totalScope = this.#timeoutController.createTotalScope({
+        callerSignal: request.signal,
+        ...(totalTimeoutMs === undefined ? {} : { timeoutMs: totalTimeoutMs }),
+      });
       const target = {
         ...parsed.target,
         body: await this.#bodyBufferManager.bufferRequestBody(parsed.target.body),
@@ -62,42 +83,65 @@ export class HandleProxyFetchRequestUseCase implements ProxyGateway {
 
       await provider.adapter.getCapabilities();
 
-      const lease = await provider.adapter.acquire({
-        attempt: { index: 0 },
-        context: parsed.context,
-        providerInstanceId: provider.id,
-        requestId,
-        requirements: {},
-        signal: request.signal,
-        target,
-      });
-      const attemptResponse = await executeDirectAttempt({
-        bodyBufferManager: this.#bodyBufferManager,
-        jsonEnvelopeBuilder: this.#jsonEnvelopeBuilder,
-        lease,
-        provider,
-        request,
-        requestId,
-        resultClassifier: this.#resultClassifier,
-        target,
-        transport: this.#options.transport,
+      const attemptTimeoutMs = this.#options.timeouts?.attemptTimeoutMs;
+      const attemptScope = this.#timeoutController.createAttemptScope({
+        parentSignal: totalScope.signal,
+        ...(attemptTimeoutMs === undefined ? {} : { timeoutMs: attemptTimeoutMs }),
       });
 
-      if (attemptResponse instanceof Response) {
-        return attemptResponse;
+      try {
+        const lease = await this.#timeoutController.race(
+          provider.adapter.acquire({
+            attempt: { index: 0 },
+            context: parsed.context,
+            providerInstanceId: provider.id,
+            requestId,
+            requirements: {},
+            signal: attemptScope.signal,
+            target,
+          }),
+          attemptScope,
+        );
+        const attemptResponse = await executeDirectAttempt({
+          bodyBufferManager: this.#bodyBufferManager,
+          jsonEnvelopeBuilder: this.#jsonEnvelopeBuilder,
+          lease,
+          provider,
+          requestId,
+          resultClassifier: this.#resultClassifier,
+          signal: attemptScope.signal,
+          target,
+          timeoutController: this.#timeoutController,
+          timeoutScope: attemptScope,
+          transport: this.#options.transport,
+        });
+
+        if (attemptResponse instanceof Response) {
+          return attemptResponse;
+        }
+
+        await releaseBestEffort(provider, lease, {
+          outcome: PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
+          response: attemptResponse,
+        });
+
+        return this.#jsonEnvelopeBuilder.buildTargetResponse(attemptResponse);
+      } finally {
+        attemptScope.dispose();
+      }
+    } catch (error) {
+      const timeoutObservation = readTimeoutObservation(error);
+
+      if (timeoutObservation !== undefined) {
+        return buildTimeoutServiceError(this.#jsonEnvelopeBuilder, this.#resultClassifier, timeoutObservation);
       }
 
-      await releaseBestEffort(provider, lease, {
-        outcome: PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
-        response: attemptResponse,
-      });
-
-      return this.#jsonEnvelopeBuilder.buildTargetResponse(attemptResponse);
-    } catch (error) {
       return this.#jsonEnvelopeBuilder.buildServiceError(400, {
         code: RESPONSE_CODE.INVALID_PROXY_FETCH_REQUEST,
         message: error instanceof Error ? error.message : 'Invalid proxy-fetch request.',
       });
+    } finally {
+      totalScope?.dispose();
     }
   }
 }
@@ -131,10 +175,12 @@ async function executeDirectAttempt(input: {
   jsonEnvelopeBuilder: ProxyFetchJsonEnvelopeBuilder;
   lease: ProxyLease;
   provider: ProxyProviderInstance;
-  request: Request;
   requestId: string;
   resultClassifier: ResultClassifier;
+  signal: AbortSignal;
   target: GatewayTargetRequest;
+  timeoutController: TimeoutController;
+  timeoutScope: TimeoutScope;
   transport: NonNullable<ProxyGatewayOptions['transport']>;
 }): Promise<GatewayTargetResponse | Response> {
   if (input.transport.supportsRoute?.(input.lease.route) === false) {
@@ -158,15 +204,41 @@ async function executeDirectAttempt(input: {
   }
 
   try {
-    const targetResponse = await input.transport.execute({
-      requestId: input.requestId,
-      route: input.lease.route,
-      signal: input.request.signal,
-      target: input.target,
-    });
+    const targetResponse = await input.timeoutController.race(
+      input.transport.execute({
+        requestId: input.requestId,
+        route: input.lease.route,
+        signal: input.signal,
+        target: input.target,
+      }),
+      input.timeoutScope,
+    );
 
-    return await input.bodyBufferManager.bufferResponseBody(targetResponse);
-  } catch {
+    return await input.timeoutController.race(
+      input.bodyBufferManager.bufferResponseBody(targetResponse),
+      input.timeoutScope,
+    );
+  } catch (error) {
+    const timeoutObservation = readTimeoutObservation(error);
+
+    if (timeoutObservation !== undefined) {
+      const classified = input.resultClassifier.classifyFailure({
+        outcome: mapTimeoutObservationToOutcome(timeoutObservation),
+        route: input.lease.route,
+        target: input.target,
+      });
+
+      await releaseBestEffort(input.provider, input.lease, classified.attemptResult);
+
+      const serviceError = classified.serviceError;
+
+      return input.jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
+        code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_TIMEOUT,
+        message: serviceError?.message ?? GATEWAY_TIMEOUT_MESSAGE,
+        retryable: serviceError?.retryable ?? false,
+      });
+    }
+
     const classified = input.resultClassifier.classifyFailure({
       message: 'Target transport execution failed.',
       outcome: PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_NETWORK_ERROR,
@@ -184,6 +256,23 @@ async function executeDirectAttempt(input: {
       retryable: serviceError?.retryable ?? true,
     });
   }
+}
+
+function buildTimeoutServiceError(
+  jsonEnvelopeBuilder: ProxyFetchJsonEnvelopeBuilder,
+  resultClassifier: ResultClassifier,
+  timeoutObservation: TimeoutObservation,
+): Response {
+  const classified = resultClassifier.classifyFailure({
+    outcome: mapTimeoutObservationToOutcome(timeoutObservation),
+  });
+  const serviceError = classified.serviceError;
+
+  return jsonEnvelopeBuilder.buildServiceError(serviceError?.status ?? 504, {
+    code: serviceError?.code ?? RESPONSE_CODE.GATEWAY_TIMEOUT,
+    message: serviceError?.message ?? GATEWAY_TIMEOUT_MESSAGE,
+    retryable: serviceError?.retryable ?? false,
+  });
 }
 
 async function releaseBestEffort(

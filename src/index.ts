@@ -1,5 +1,11 @@
 export { createProxyGateway } from './app/create-proxy-gateway';
-export type { BodyBufferingPolicy, ProviderSelectionConfig, ProxyGatewayOptions, RetrySafetyPolicy } from './app/types';
+export type {
+  BodyBufferingPolicy,
+  ProviderSelectionConfig,
+  ProxyGatewayOptions,
+  RetrySafetyPolicy,
+  TimeoutPolicy,
+} from './app/types';
 export * from './constants';
 export type { ProxyGateway } from './ports/inbound';
 export type {

@@ -1,4 +1,11 @@
-import { PROXY_ATTEMPT_RESULT_OUTCOME, RESPONSE_CODE, RETRY_CONDITION } from '../../constants';
+import {
+  GATEWAY_TIMEOUT_MESSAGE,
+  PROXY_ATTEMPT_RESULT_OUTCOME,
+  REQUEST_ABORTED_MESSAGE,
+  RESPONSE_CODE,
+  RETRY_CONDITION,
+  TARGET_TIMEOUT_MESSAGE,
+} from '../../constants';
 import { createRouteDiagnostic } from '../../domain/routing';
 import type {
   GatewayTargetRequest,
@@ -66,7 +73,7 @@ const FAILURE_MAPPINGS = new Map<PROXY_ATTEMPT_RESULT_OUTCOME, FailureMapping>([
     PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_TIMEOUT,
     {
       code: RESPONSE_CODE.TARGET_TIMEOUT,
-      defaultMessage: 'Target request timed out.',
+      defaultMessage: TARGET_TIMEOUT_MESSAGE,
       retryable: true,
       retryCondition: RETRY_CONDITION.TARGET_TIMEOUT,
       status: 504,
@@ -106,7 +113,7 @@ const FAILURE_MAPPINGS = new Map<PROXY_ATTEMPT_RESULT_OUTCOME, FailureMapping>([
     PROXY_ATTEMPT_RESULT_OUTCOME.GATEWAY_TIMEOUT,
     {
       code: RESPONSE_CODE.GATEWAY_TIMEOUT,
-      defaultMessage: 'Gateway request timed out.',
+      defaultMessage: GATEWAY_TIMEOUT_MESSAGE,
       retryable: false,
       retryCondition: RETRY_CONDITION.GATEWAY_TIMEOUT,
       status: 504,
@@ -116,7 +123,7 @@ const FAILURE_MAPPINGS = new Map<PROXY_ATTEMPT_RESULT_OUTCOME, FailureMapping>([
     PROXY_ATTEMPT_RESULT_OUTCOME.ABORTED,
     {
       code: RESPONSE_CODE.REQUEST_ABORTED,
-      defaultMessage: 'Request was aborted.',
+      defaultMessage: REQUEST_ABORTED_MESSAGE,
       retryable: false,
       status: 499,
     },

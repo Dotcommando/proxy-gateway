@@ -56,6 +56,12 @@ export const STREAMING_MULTIPART_BOUNDARY_PREFIX = 'proxy-fetch-stream';
 
 export const OCTET_STREAM_CONTENT_TYPE = 'application/octet-stream';
 
+export const GATEWAY_TIMEOUT_MESSAGE = 'Gateway request timed out.';
+
+export const TARGET_TIMEOUT_MESSAGE = 'Target request timed out.';
+
+export const REQUEST_ABORTED_MESSAGE = 'Request was aborted.';
+
 export enum RESPONSE_CODE {
   EXIT_VERIFICATION_FAILED = 'EXIT_VERIFICATION_FAILED',
   GATEWAY_TIMEOUT = 'GATEWAY_TIMEOUT',
@@ -140,6 +146,12 @@ export enum RETRY_DECISION_REASON {
   REQUEST_BODY_NOT_REPLAYABLE = 'request-body-not-replayable',
   RETRY_CONDITION_NOT_CONFIGURED = 'retry-condition-not-configured',
   UNSAFE_METHOD = 'unsafe-method',
+}
+
+export enum TIMEOUT_OBSERVATION_KIND {
+  ATTEMPT_TIMEOUT = 'attempt-timeout',
+  CALLER_ABORTED = 'caller-aborted',
+  TOTAL_TIMEOUT = 'total-timeout',
 }
 
 export enum STRING_MATCHER_KIND {

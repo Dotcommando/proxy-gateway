@@ -15,6 +15,7 @@ export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
   random?: RandomPort;
   retrySafety?: RetrySafetyPolicy;
+  timeouts?: TimeoutPolicy;
   transport?: TargetTransportPort;
 }
 
@@ -26,4 +27,9 @@ export interface RetrySafetyPolicy {
   requireIdempotencyKeyForUnsafeRetries?: boolean;
   retryUnsafeMethods?: boolean;
   unsafeMethods?: string[];
+}
+
+export interface TimeoutPolicy {
+  attemptTimeoutMs?: number;
+  totalTimeoutMs?: number;
 }
