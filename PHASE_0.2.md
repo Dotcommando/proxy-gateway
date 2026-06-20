@@ -655,7 +655,7 @@ Next three steps reassessment:
 - Step 20 remains needed. The final precedence flow now gives route/default requirements to pipelines, but pipeline-selected executable plans still do not get sticky-session read-path pinning before planner execution; Step 20 should unify session behavior for route and pipeline declarative paths.
 - Step 21 remains ready. Its target-access tests should include the new precedence behavior: target access must still run before route selection, pipeline execution, session reads/writes, planner capability lookup, provider acquire, verifier, and transport.
 
-## 19. Verification Flags Through Declarative Config
+## 19. Verification Flags Through Declarative Config - Completed
 
 Purpose:
 - Ensure route and pipeline config can require exit verification.
@@ -673,6 +673,19 @@ Verify:
 - Verification declarative integration tests pass.
 - Existing attempt executor verification tests still pass.
 
+Progress:
+- Added declarative verification gateway tests for route-level geo verification requirements invoking `ProxyExitVerifierPort`.
+- Added pipeline `plan.fallback` verification tests proving per-attempt `verification` args and geo requirements trigger verifier execution.
+- Added declarative pipeline fallback coverage for geo mismatch retry/fallback, proving failed verification prevents transport execution for the mismatched provider and falls back when `retryOn` allows it.
+- Added no-verifier rejection coverage for route-level verified-after-acquire geo, proving planner rejects before provider acquire/transport.
+- No production code changes were needed because route/default requirement merge, built-in `plan.fallback`, `ExecutionPlanner`, and `AttemptExecutor` already preserved and executed verification requirements.
+- Checked nested AGENTS files; no updates were needed for this test-only step.
+
+Next three steps reassessment:
+- Step 20 is ready. It should unify sticky-session read-path behavior for pipeline-selected executable plans with the existing route/default/direct configured-plan path, while preserving the write path already shared after successful attempts.
+- Step 21 remains ready. Its regression tests should include the route/default + pipeline precedence path from Step 18 and the declarative verification path from Step 19.
+- Step 22 remains ready after Steps 20-21 and should include smoke coverage for route/default config, pipeline built-ins including `plan.fallback`, verification flags where practical, sticky sessions, and memory session store imports.
+
 ## 20. Sticky Sessions Through Declarative Routes
 
 Purpose:
@@ -688,7 +701,7 @@ Red:
   - fallback success updates session.
 
 Green:
-- Wire session manager into the final route/pipeline planning flow.
+- Wire session manager into the final route/pipeline planning flow, including pipeline-selected executable plans.
 - Reuse the direct-plan session read/write helpers from Steps 7-8; do not duplicate session logic for declarative routes/pipelines.
 - Keep provider adapters generic and only pass identity requirements.
 
