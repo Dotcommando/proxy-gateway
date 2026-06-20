@@ -6,7 +6,7 @@ Outbound ports are contracts implemented by user code, provider packages, adapte
 
 Provider adapters acquire routes for one attempt. They do not execute retry, fallback, verification policy, target transport, or response building.
 
-`ProxyAcquireInput.requirements` must stay typed as `ProxyRouteRequirements`, not widened to `Record<string, unknown>`. Preserve structured requirements such as `dns`, `geo`, and `verification`.
+`ProxyAcquireInput.requirements` must stay typed as `ProxyRouteRequirements`, not widened to `Record<string, unknown>`. Preserve structured requirements such as `dns`, `geo`, `identity`, and `verification`.
 
 `release(lease, result)` is cleanup, not policy. It receives the classified `ProxyAttemptResult`, should be called when possible for every acquired lease, and must remain best-effort. Release failures are gateway events and must not replace the real attempt outcome.
 
@@ -63,6 +63,12 @@ Common requirements:
 ```
 
 Local Tor, hosted Tor SOCKS endpoints, commercial proxy providers, and static forward proxies must remain separate provider packages outside the core.
+
+## Identity Requirements
+
+`ProxyRouteRequirements.identity` is the provider-agnostic handoff for sticky sessions, fixed identity, per-request rotation, isolation keys, isolation scopes, and request-new-identity hints. Rotation and isolation scope values must use package enums, not ad hoc strings.
+
+Provider adapters may interpret identity requirements according to their own capabilities, but the core route model must not contain provider-specific session syntax.
 
 ## Verifier and Intelligence Ports
 

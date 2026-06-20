@@ -5,6 +5,8 @@ import {
   PLANNER_RESULT_KIND,
   PROXY_DNS_MODE,
   PROXY_GEO_STRICTNESS,
+  PROXY_IDENTITY_ISOLATION_SCOPE,
+  PROXY_IDENTITY_ROTATION,
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
@@ -164,6 +166,51 @@ describe('ExecutionPlanner', () => {
         networkTypes: [PROXY_NETWORK_TYPE.TOR],
         protocols: [PROXY_PROTOCOL.SOCKS5H],
       });
+    }
+  });
+
+  it('preserves structured identity requirements on planned attempts', async () => {
+    const requirements = {
+      identity: {
+        isolationKey: 'market:gb',
+        isolationScope: [
+          PROXY_IDENTITY_ISOLATION_SCOPE.TENANT,
+          PROXY_IDENTITY_ISOLATION_SCOPE.FLOW,
+          PROXY_IDENTITY_ISOLATION_SCOPE.ROUTE,
+          PROXY_IDENTITY_ISOLATION_SCOPE.PROVIDER,
+          PROXY_IDENTITY_ISOLATION_SCOPE.TARGET_HOST,
+          PROXY_IDENTITY_ISOLATION_SCOPE.ATTEMPT,
+        ],
+        requestNewIdentity: true,
+        rotation: PROXY_IDENTITY_ROTATION.STICKY,
+        stickySessionId: 'session-a',
+        stickySessionTtlMs: 60_000,
+      },
+      protocols: [PROXY_PROTOCOL.HTTP],
+    };
+    const planner = new ExecutionPlanner({
+      providers: [
+        provider('identity-provider', {
+          protocols: [PROXY_PROTOCOL.HTTP],
+        }),
+      ],
+    });
+    const result = await planner.plan({
+      plan: {
+        attempts: [
+          {
+            provider: 'identity-provider',
+            requirements,
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+    });
+
+    expect(result.kind).toBe(PLANNER_RESULT_KIND.PLANNED);
+
+    if (result.kind === PLANNER_RESULT_KIND.PLANNED) {
+      expect(result.plan.attempts[0]?.requirements?.identity).toEqual(requirements.identity);
     }
   });
 

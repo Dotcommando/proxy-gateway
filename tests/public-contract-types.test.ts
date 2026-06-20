@@ -3,6 +3,8 @@ import { describe, expect, it } from '@jest/globals';
 import {
   createMemoryProxySessionStore,
   type NodeHttpHandler,
+  PROXY_IDENTITY_ISOLATION_SCOPE,
+  PROXY_IDENTITY_ROTATION,
   PROXY_PLAN_KIND,
   PROXY_ROUTE_KIND,
   type ProxyDefaultRouteConfig,
@@ -125,16 +127,53 @@ describe('public contract types', () => {
 
   it('exposes structured identity requirements on route requirements', () => {
     const identity: ProxyIdentityRequirements = {
-      isolationKey: 'tenant-a',
+      isolationKey: 'market:gb',
+      isolationScope: [
+        PROXY_IDENTITY_ISOLATION_SCOPE.TENANT,
+        PROXY_IDENTITY_ISOLATION_SCOPE.FLOW,
+        PROXY_IDENTITY_ISOLATION_SCOPE.ROUTE,
+        PROXY_IDENTITY_ISOLATION_SCOPE.PROVIDER,
+        PROXY_IDENTITY_ISOLATION_SCOPE.TARGET_HOST,
+        PROXY_IDENTITY_ISOLATION_SCOPE.ATTEMPT,
+      ],
+      requestNewIdentity: true,
+      rotation: PROXY_IDENTITY_ROTATION.STICKY,
       stickySessionId: 'session-a',
       stickySessionTtlMs: 60_000,
+    };
+    const fixedIdentity: ProxyIdentityRequirements = {
+      rotation: PROXY_IDENTITY_ROTATION.FIXED,
+    };
+    const perRequestIdentity: ProxyIdentityRequirements = {
+      rotation: PROXY_IDENTITY_ROTATION.PER_REQUEST,
     };
     const requirements: ProxyRouteRequirements = {
       identity,
     };
 
+    expect(PROXY_IDENTITY_ROTATION.STICKY).toBe('sticky');
+    expect(PROXY_IDENTITY_ROTATION.FIXED).toBe('fixed');
+    expect(PROXY_IDENTITY_ROTATION.PER_REQUEST).toBe('per-request');
+    expect(PROXY_IDENTITY_ISOLATION_SCOPE.TENANT).toBe('tenant');
+    expect(PROXY_IDENTITY_ISOLATION_SCOPE.FLOW).toBe('flow');
+    expect(PROXY_IDENTITY_ISOLATION_SCOPE.ROUTE).toBe('route');
+    expect(PROXY_IDENTITY_ISOLATION_SCOPE.PROVIDER).toBe('provider');
+    expect(PROXY_IDENTITY_ISOLATION_SCOPE.TARGET_HOST).toBe('target-host');
+    expect(PROXY_IDENTITY_ISOLATION_SCOPE.ATTEMPT).toBe('attempt');
+    expect(fixedIdentity.rotation).toBe(PROXY_IDENTITY_ROTATION.FIXED);
+    expect(perRequestIdentity.rotation).toBe(PROXY_IDENTITY_ROTATION.PER_REQUEST);
     expect(requirements.identity).toEqual({
-      isolationKey: 'tenant-a',
+      isolationKey: 'market:gb',
+      isolationScope: [
+        PROXY_IDENTITY_ISOLATION_SCOPE.TENANT,
+        PROXY_IDENTITY_ISOLATION_SCOPE.FLOW,
+        PROXY_IDENTITY_ISOLATION_SCOPE.ROUTE,
+        PROXY_IDENTITY_ISOLATION_SCOPE.PROVIDER,
+        PROXY_IDENTITY_ISOLATION_SCOPE.TARGET_HOST,
+        PROXY_IDENTITY_ISOLATION_SCOPE.ATTEMPT,
+      ],
+      requestNewIdentity: true,
+      rotation: PROXY_IDENTITY_ROTATION.STICKY,
       stickySessionId: 'session-a',
       stickySessionTtlMs: 60_000,
     });

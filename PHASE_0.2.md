@@ -15,6 +15,10 @@ This phase turns the v0.1 core vertical slice into a configurable gateway:
 - Add `src/app/sessions` for app-level sticky/session coordination.
 - Use `src/adapters/outbound` for the dependency-free in-memory session store if it becomes public API.
 
+## Per-Step Maintenance
+
+After completing each step, review the next three steps before moving on. Update them when completed work changes their assumptions, contracts, scope, or Red/Green/Verify notes. If an earlier step already introduced part of a later contract or implementation, narrow the later step to the remaining work; if a planned contract no longer matches the code, correct it; if planned work became unnecessary, remove or mark it as already covered.
+
 ## Completion Criteria
 
 - v0.2 public API is reflected in README and package exports.
@@ -55,7 +59,7 @@ Next three steps reassessment:
 - Step 3 is ready after Step 2. Keep key derivation in `src/app/sessions` and route/host normalization helpers in domain only if they become reusable.
 - Step 4 is partly started by the baseline port shape. Its Red/Green work should now focus on behavior contracts, record metadata/identity snapshots, and proving expiry handling belongs to the app-level session manager rather than each store.
 
-## 2. Identity Requirement Model
+## 2. Identity Requirement Model - Completed
 
 Purpose:
 - Replace the implicit identity requirements index-signature use with explicit public contracts.
@@ -80,6 +84,18 @@ Green:
 Verify:
 - Identity requirement tests pass.
 - Existing planner and provider acquire tests still pass.
+
+Progress:
+- Added package enums `PROXY_IDENTITY_ROTATION` and `PROXY_IDENTITY_ISOLATION_SCOPE`.
+- Tightened `ProxyIdentityRequirements.rotation` to `PROXY_IDENTITY_ROTATION` and `isolationScope` to `PROXY_IDENTITY_ISOLATION_SCOPE[]`.
+- Added public type tests covering `rotation`, `stickySessionId`, `stickySessionTtlMs`, `isolationKey`, `isolationScope`, and `requestNewIdentity`.
+- Added planner coverage proving `ProxyRouteRequirements.identity` is preserved from plan config to executable attempts.
+- Checked nested AGENTS files and updated `src/ports/outbound/AGENTS.md` for the durable identity requirements contract.
+
+Next three steps reassessment:
+- Step 3 is ready. It should use `PROXY_IDENTITY_ISOLATION_SCOPE` directly when deriving deterministic session keys.
+- Step 4 is ready but should avoid redefining identity fields; session records should snapshot `ProxyIdentityRequirements`.
+- Step 5 remains ready after Step 4. The memory store already exists as a public factory baseline, so Step 5 should focus on behavior coverage, deterministic time inputs where needed, overwrite semantics, and leakage prevention.
 
 ## 3. Session Key Derivation
 

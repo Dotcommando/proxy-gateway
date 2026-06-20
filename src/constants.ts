@@ -370,6 +370,21 @@ export enum PROXY_GEO_STRICTNESS {
   REQUIRED = 'required',
 }
 
+export enum PROXY_IDENTITY_ROTATION {
+  FIXED = 'fixed',
+  PER_REQUEST = 'per-request',
+  STICKY = 'sticky',
+}
+
+export enum PROXY_IDENTITY_ISOLATION_SCOPE {
+  ATTEMPT = 'attempt',
+  FLOW = 'flow',
+  PROVIDER = 'provider',
+  ROUTE = 'route',
+  TARGET_HOST = 'target-host',
+  TENANT = 'tenant',
+}
+
 export enum PROXY_PROVIDER_GEO_MODE {
   BEST_EFFORT = 'best-effort',
   GUARANTEED = 'guaranteed',

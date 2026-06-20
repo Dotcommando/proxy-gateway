@@ -3,6 +3,8 @@ import {
   PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_DNS_MODE,
   PROXY_GEO_STRICTNESS,
+  PROXY_IDENTITY_ISOLATION_SCOPE,
+  PROXY_IDENTITY_ROTATION,
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
@@ -91,9 +93,9 @@ export interface ProxyVerificationRequirements {
 
 export interface ProxyIdentityRequirements {
   isolationKey?: string;
-  isolationScope?: string;
+  isolationScope?: PROXY_IDENTITY_ISOLATION_SCOPE[];
   requestNewIdentity?: boolean;
-  rotation?: string;
+  rotation?: PROXY_IDENTITY_ROTATION;
   stickySessionId?: string;
   stickySessionTtlMs?: number;
 }
