@@ -1,3 +1,5 @@
+export type { NodeHttpHandler } from './adapters/inbound';
+export { createNodeHttpHandler } from './adapters/inbound';
 export { createProxyGateway } from './app/create-proxy-gateway';
 export type {
   ProxyFallbackPlanConfig,

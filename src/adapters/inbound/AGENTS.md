@@ -4,6 +4,8 @@ Inbound adapters are thin wrappers around `ProxyGateway.handle(request: Request)
 
 They translate external HTTP/framework shapes into Web Fetch API `Request` objects and translate the returned Web `Response` back to the framework/server shape.
 
+`createNodeHttpHandler(gateway)` is the built-in Node HTTP adapter. It may use only Node built-in modules and Web Fetch runtime objects. It must preserve raw request body bytes, request headers, response status, response headers, and response body bytes while delegating all gateway behavior to `ProxyGateway.handle()`.
+
 Do not duplicate gateway logic across Node HTTP, Express, Fastify, NestJS, or Web Fetch handlers.
 
 Runtime core must not depend on Express, Fastify, NestJS, or other web framework packages. Framework integrations in this package must be dependency-free structural wrappers or live in separate packages/dev-only tests.

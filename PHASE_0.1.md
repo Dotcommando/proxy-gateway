@@ -1467,7 +1467,7 @@ Verified:
 - `npm run typecheck`
 - `npm run lint`
 
-### 25.2 Node HTTP Handler
+### 25.2 Node HTTP Handler - Done
 
 Scope:
 - Implement `createNodeHttpHandler(gateway)` in `src/adapters/inbound`.
@@ -1493,12 +1493,29 @@ Verify:
 - `npm run typecheck`
 - `npm run lint`
 
+Implemented:
+- Added `createNodeHttpHandler(gateway)` in `src/adapters/inbound`.
+- Converted Node `IncomingMessage` to Web `Request` with raw body bytes preserved through a Web `Blob`.
+- Converted Web `Response` back to `ServerResponse` with status, headers, and body bytes preserved.
+- Exported `createNodeHttpHandler` and `NodeHttpHandler` from `src/adapters/inbound` and the package root.
+- Added Node handler tests using the 25.1 inbound adapter contract harness.
+- Added a Node-specific test for URL path/query, method, headers, and raw body conversion.
+- Did not add a request abort/stream error test in this substep because a deterministic version would require broader Node server failure infrastructure.
+- Updated `src/adapters/inbound/AGENTS.md` with the durable Node handler contract.
+
+Verified:
+- `npm test -- --runTestsByPath tests/node-http-handler.test.ts`
+- `npm test -- --runTestsByPath tests/node-http-handler.test.ts tests/inbound-adapter-contract.test.ts tests/gateway-body-status-compatibility.test.ts tests/final-url-guard-contract.test.ts tests/public-api.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+
 ### 25.3 Node Handler Body/Status/Error Matrix
 
 Scope:
 - Expand Node handler tests with fixtures introduced in steps 24.3 and 24.4.
 - Focus on byte preservation across the Node boundary, not gateway internals.
 - Reuse the 25.1 harness where possible and add Node-server-specific cases only where needed.
+- Build on the real `createNodeHttpHandler`; do not add another fake adapter layer.
 
 Red:
 - Add Node handler tests for JSON text request/response.
@@ -1511,11 +1528,13 @@ Green:
 - Fix only Node handler translation issues exposed by these tests.
 - Keep shared fixtures reusable for possible future framework adapters.
 - Do not duplicate gateway body/status compatibility assertions beyond the wrapper boundary.
+- Keep Node handler request body conversion raw; do not introduce JSON parsing shortcuts.
 
 Verify:
 - Node handler matrix tests pass.
 - Full inbound adapter contract suite passes.
 - Existing gateway body/status and access/redaction tests still pass.
+- Final URL guard contract tests still pass.
 
 ### 25.4 Dependency-Free Structural Framework Wrapper Decision
 
@@ -1523,10 +1542,12 @@ Scope:
 - Decide whether Express/Fastify/NestJS structural wrappers belong in the core package for v0.1.
 - If implemented, they must be dependency-free and must not import framework packages.
 - If not implemented, document that real framework adapters belong in separate packages or future phases.
+- Reconcile the decision with README wording and package root exports.
 
 Red:
 - Add contract tests for structural wrappers only if the public export is intended for v0.1.
 - Add tests proving no framework package is imported by runtime code.
+- Add README/export expectation tests if wrappers are deferred.
 
 Green:
 - Implement only wrappers that can stay thin, dependency-free, and well-typed.
