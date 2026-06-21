@@ -24,11 +24,13 @@ Rules:
 - Do not add `always-auth`; current npm warns on that config.
 - `.npmrc.local-registry` is generated local state and must stay ignored.
 - The consumer should install with `--package-lock=false` so Verdaccio tarball URLs are not committed.
+- The existing consumer should depend on `@echospecter/proxy-gateway` through the `local` dist-tag produced by `publish-local.sh`, not a hard-coded package version.
 - Keep the consumer on the minimum supported Node line unless explicitly testing a version matrix.
-- Root lint may cover consumer JS smoke files, but consumer TS smoke files compile through the consumer `smoke:types` script.
+- Root lint may cover consumer JS test files, but consumer TS type contract files compile through the consumer `test:types` script.
+- Existing and new consumer scenarios should run through `node:test` with `node:assert/strict`; shell scripts and Docker Compose should only orchestrate publishing, installing, and test command execution.
 ```
 
-Consumer smoke coverage should include:
+Consumer test coverage should include:
 
 ```txt
 - public runtime exports and deferred framework wrapper absence;

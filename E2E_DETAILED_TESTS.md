@@ -18,7 +18,7 @@ The local-registry consumer package should run tests with a command shaped like:
 ```json
 {
   "scripts": {
-    "test:e2e": "npm run test:types && node --test --test-reporter=spec \"src/**/*.test.mjs\" \"src/**/*.test.cjs\"",
+    "test:e2e": "npm run test:types && node --test --test-reporter=spec src/*.test.mjs src/*.test.cjs",
     "test:types": "tsc -p tsconfig.json --noEmit"
   }
 }
@@ -53,7 +53,7 @@ npm run test:e2e
 or directly:
 
 ```sh
-node --test --test-reporter=spec "src/**/*.test.mjs"
+node --test --test-reporter=spec src/*.test.mjs
 ```
 
 The Docker exit code should come from the Node test runner. A passing scenario
@@ -469,7 +469,7 @@ Consumer package:
 ```json
 {
   "scripts": {
-    "test:e2e": "node --test --test-reporter=spec \"src/**/*.test.mjs\""
+    "test:e2e": "node --test --test-reporter=spec src/*.test.mjs"
   },
   "dependencies": {
     "@echospecter/proxy-fetch": "^0.1.0"
@@ -805,7 +805,7 @@ already been started, the local gateway package has been published, and
 `micro-provider` plus `micro-gateway` are running. The one-command runner in
 Step 20 must perform that full setup from a clean state.
 
-### 1. Convert Existing Local Registry Consumer To Node Test
+### 1. Convert Existing Local Registry Consumer To Node Test - Completed
 
 Purpose:
 
@@ -825,7 +825,7 @@ Green:
 - Update `e2e/local-registry/consumer/package.json` to run:
 
 ```sh
-npm run test:types && node --test --test-reporter=spec "src/**/*.test.mjs" "src/**/*.test.cjs"
+npm run test:types && node --test --test-reporter=spec src/*.test.mjs src/*.test.cjs
 ```
 
 - Keep assertions in test files with `node:assert/strict`.
@@ -839,9 +839,47 @@ Verify:
 ./e2e/local-registry/scripts/reset-registry.sh
 docker compose -f e2e/local-registry/docker-compose.yml up -d verdaccio
 ./e2e/local-registry/scripts/publish-local.sh "$GATEWAY_REPO"
-docker compose -f e2e/local-registry/docker-compose.yml run --rm consumer npm run test:e2e
+docker compose -f e2e/local-registry/docker-compose.yml run --rm consumer
 docker compose -f e2e/local-registry/docker-compose.yml down
 ```
+
+The existing `consumer` compose command performs `npm install` before running
+the `smoke` compatibility alias, which now delegates to `test:e2e`.
+
+Progress:
+
+- Renamed existing consumer scenario files from `*-smoke` scripts to
+  `.test.mjs`/`.test.cjs` files and renamed the shared helper to
+  `test-common.mjs`.
+- Replaced success-printing top-level scripts with `node:test` and
+  `node:assert/strict` assertions.
+- Added `test:e2e` and `test:types` scripts while keeping `smoke` and
+  `smoke:types` as compatibility aliases for existing compose usage.
+- Switched the consumer dependency on `@echospecter/proxy-gateway` to the
+  Verdaccio `local` dist-tag produced by `publish-local.sh`, avoiding drift
+  from the package version in this repository.
+- Used flat `src/*.test.mjs src/*.test.cjs` test globs because the Node 20
+  Alpine consumer does not expand quoted recursive globs before the test
+  runner receives them.
+- Preserved the existing package-consumption coverage: public exports, ESM,
+  CJS, Node HTTP handler, JSON base64 body handling, multipart body handling,
+  v0.2 route/pipeline/session config, and TypeScript type imports.
+- Updated `e2e/local-registry/AGENTS.md` with the durable rule that consumer
+  scenarios run through `node:test`, the existing consumer uses the `local`
+  dist-tag, and shell/Docker only orchestrate.
+- Verified with root lint/typecheck, local publish through Verdaccio, and the
+  compose consumer run; the consumer reports 9 passing Node tests.
+
+Next three steps reassessment:
+
+- Step 2 is ready. It should create the new microservice package skeleton using
+  the same `node:test` pattern established here, with a minimal passing
+  skeleton test rather than a success-printing script.
+- Step 3 is ready after Step 2. Its compose service commands should invoke
+  `npm run test:e2e` in `micro-consumer`, not direct scenario scripts.
+- Step 4 is ready after Step 3. Health checks should be ordinary
+  `health.test.mjs` tests and should reuse the helper/assertion style from the
+  converted consumer suite.
 
 ### 2. Add Microservice Test Package Skeleton
 
