@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from '@jest/globals';
 
 import * as gatewayExports from '../src';
@@ -15,29 +13,6 @@ import {
 } from '../src';
 
 describe('public API', () => {
-  it('keeps the README aligned with v0.2 route, pipeline, and session contract names', () => {
-    const readme = readFileSync('README.md', 'utf8');
-    const documentedContractNames = [
-      'routes?:',
-      'defaultRoute?:',
-      'pipelines?:',
-      'stepRegistry?:',
-      'sessionStore?:',
-      'ProxySessionStorePort',
-      'createMemoryProxySessionStore',
-    ];
-
-    for (const contractName of documentedContractNames) {
-      expect(readme).toContain(contractName);
-    }
-  });
-
-  it('does not document providerSelection as a public configuration path', () => {
-    const readme = readFileSync('README.md', 'utf8');
-
-    expect(readme).not.toContain('providerSelection');
-  });
-
   it('does not export real provider, framework, or Tor adapter factories from the core package', () => {
     const forbiddenRuntimeExports = [
       'createBrightDataProvider',

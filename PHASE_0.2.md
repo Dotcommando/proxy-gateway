@@ -803,27 +803,47 @@ Next three steps reassessment:
 - Step 24 is still useful but can be narrow. Session and local-registry rules were already updated during earlier steps; audit remaining AGENTS gaps around README-facing route/pipeline precedence, built-in steps, and release-gate expectations rather than duplicating existing session-store rules.
 - Step 25 remains ready. It should treat the consumer e2e from Step 22 as an established release-gate command and focus on final export/package checks plus removal or documentation of any leftover temporary APIs.
 
-## 23. README And Public API Alignment
+## 23. README And Public API Alignment - Completed
 
 Purpose:
 - Make README describe the actual v0.2 public behavior.
 
 Red:
-- Add README/API alignment tests for:
+- During implementation, use README/API alignment checks for:
   - route config example;
   - pipeline built-ins;
   - sticky session config;
   - memory session store;
   - local Node HTTP integration;
   - out-of-scope adapter packages.
+- Do not retain README content tests in the permanent suite; permanent tests should cover application behavior, public exports, package contracts, and component wiring.
 
 Green:
 - Update README user-facing docs.
 - Do not copy AGENTS-level internal architecture into README unless package users need it.
 
 Verify:
-- README/API tests pass.
+- Public API/package tests pass.
 - `npm run typecheck`
+
+Progress:
+- Used README/API alignment checks while updating docs, then removed README content assertions from the permanent test suite so tests stay focused on application behavior, public exports, package contracts, and component wiring.
+- Updated README with a user-facing route/default-route configuration example using public route, plan, requirements, and enum contracts.
+- Updated README pipeline docs to list built-in steps and document final route/default/pipeline precedence: selected pipeline plans win; skipped/no-plan pipelines fall through to selected route/default/direct `plan`; configured pipelines do not silently pick the first enabled provider after fallthrough.
+- Updated README sticky-session docs with structured identity requirements, `createMemoryProxySessionStore()`, expiration/read/write behavior, and durable-store guidance.
+- Removed the older framework-wrapper README/source-import test file; framework adapter absence remains covered by public export/package contract checks.
+- Checked nested AGENTS files; no updates were needed because this step documented existing public behavior without adding a new durable architecture rule.
+
+Verify:
+- `npm run lint`
+- `npm run typecheck`
+- `npm test`
+- `npm run pack:check`
+
+Next three steps reassessment:
+- Step 24 is ready and should be narrower now that README and local-registry AGENTS were updated in Steps 22-23. Audit for remaining durable rules around route/pipeline precedence, built-in step ownership, and release-gate expectations; avoid duplicating session-store rules that are already captured.
+- Step 25 remains ready. It should run the final release gate and check that README/package exports/package contents align with the public v0.2 surface.
+- There is no Step 26. If Step 24 finds no AGENTS gaps, Step 25 can proceed directly after documenting that audit.
 
 ## 24. Nested AGENTS.md Updates
 
@@ -867,6 +887,5 @@ Verify:
 
 ## Remaining PR Order
 
-1. README and public API alignment.
-2. Nested AGENTS.md audit for remaining route/pipeline/e2e/release rules.
-3. v0.2 release gate.
+1. Nested AGENTS.md audit for remaining route/pipeline/e2e/release rules.
+2. v0.2 release gate.
