@@ -445,6 +445,17 @@ Add a single high-level script:
 e2e/local-registry/scripts/run-microservices-e2e.sh
 ```
 
+Expose that runner through a short root `package.json` script so the full
+microservice lab can be run from the repository root with one command:
+
+```sh
+npm run test:e2e:microservices
+```
+
+The root script should delegate to
+`./e2e/local-registry/scripts/run-microservices-e2e.sh`. Do not add this
+heavier live lab to the default `npm test` command.
+
 Expected flow:
 
 ```sh
@@ -881,7 +892,7 @@ Next three steps reassessment:
   `health.test.mjs` tests and should reuse the helper/assertion style from the
   converted consumer suite.
 
-### 2. Add Microservice Test Package Skeleton
+### 2. Add Microservice Test Package Skeleton - Completed
 
 Purpose:
 
@@ -890,8 +901,9 @@ Purpose:
 
 Red:
 
-- Add empty package directories for `micro-consumer`, `micro-gateway`, and
-  `micro-provider`.
+- Add empty package directories for `consumer`, `gateway`, and `mock-provider`
+  under `e2e/local-registry/microservices`. The future compose service can
+  still be named `micro-provider`.
 - Add a placeholder `micro-consumer` test command that fails because no test
   file exists yet.
 
@@ -909,6 +921,32 @@ Verify:
 npm --prefix e2e/local-registry/microservices/consumer run test:e2e
 ```
 
+Progress:
+
+- Created `e2e/local-registry/microservices/consumer`, `gateway`, and
+  `mock-provider` package skeletons.
+- Added `micro-consumer` package script `test:e2e` using the Node test runner.
+- Added one passing `skeleton.test.mjs` to prove the new test package runs
+  without Docker Compose wiring.
+- Added package dependencies according to the intended source split:
+  `@echospecter/proxy-fetch` in the consumer and local-tagged
+  `@echospecter/proxy-gateway` in the gateway package.
+- Updated `e2e/local-registry/AGENTS.md` with the durable directory/service
+  naming rule for the microservice lab.
+- Verified with the focused Step 2 command plus root lint/typecheck.
+
+Next three steps reassessment:
+
+- Step 3 needed clarification after the skeleton test landed: it should add
+  compose wiring only, with service names `micro-consumer`, `micro-gateway`,
+  and `micro-provider` mapped to package directories `consumer`, `gateway`, and
+  `mock-provider`. Health behavior remains out of scope for Step 3.
+- Step 4 is ready after Step 3. It should add the first runnable server files
+  under `gateway/src` and `mock-provider/src`, then add consumer health tests.
+- Step 5 is ready after Step 4. It should reuse the package manifests created
+  here and focus on Verdaccio source assertions rather than reshaping the
+  package skeleton.
+
 ### 3. Add Dedicated Microservice Compose Wiring
 
 Purpose:
@@ -917,14 +955,17 @@ Purpose:
 
 Red:
 
-- Add `docker-compose.microservices.yml`.
-- `micro-consumer` should fail until `micro-gateway` and `micro-provider`
-  expose health endpoints.
+- `docker compose -p proxy-gateway-micro-e2e -f
+  e2e/local-registry/docker-compose.microservices.yml config` fails because the
+  compose file does not exist.
+- Do not add server health behavior or scenario assertions in this step.
 
 Green:
 
 - Add `verdaccio`, `micro-consumer`, `micro-gateway`, and `micro-provider`
   services.
+- Map service directories to `microservices/consumer`, `microservices/gateway`,
+  and `microservices/mock-provider`.
 - Use distinct volumes: `micro-consumer-node-modules`,
   `micro-gateway-node-modules`, `micro-provider-node-modules`, and
   `micro-verdaccio-storage`.
@@ -955,6 +996,8 @@ Green:
 - Add `GET /health` to `micro-gateway` and `micro-provider`.
 - Add `micro-consumer` helpers that wait for health endpoints.
 - Add a passing `health.test.mjs` in `micro-consumer`.
+- Keep the Step 2 skeleton test passing or replace it with a real health test
+  only if the new health test fully proves the test runner wiring.
 
 Verify:
 
@@ -1349,6 +1392,8 @@ Red:
 Green:
 
 - Add `run-microservices-e2e.sh` with cleanup trap.
+- Add root `package.json` script `test:e2e:microservices` delegating to the
+  runner.
 - Document it in `e2e/local-registry/README.md`.
 - Update `e2e/local-registry/AGENTS.md` and `tests/AGENTS.md` only for durable
   testing rules introduced by this lab.
@@ -1356,7 +1401,7 @@ Green:
 Verify:
 
 ```sh
-./e2e/local-registry/scripts/run-microservices-e2e.sh
+npm run test:e2e:microservices
 git status --short
 ```
 
@@ -1371,7 +1416,7 @@ npm run lint
 npm run typecheck
 npm test
 npm run pack:check
-./e2e/local-registry/scripts/run-microservices-e2e.sh
+npm run test:e2e:microservices
 ```
 
 Keep the current fast local-registry consumer test suite as the

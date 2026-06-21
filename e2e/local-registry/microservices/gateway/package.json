@@ -1,0 +1,9 @@
+{
+  "name": "proxy-gateway-micro-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@echospecter/proxy-gateway": "local"
+  }
+}

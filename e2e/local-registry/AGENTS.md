@@ -28,6 +28,7 @@ Rules:
 - Keep the consumer on the minimum supported Node line unless explicitly testing a version matrix.
 - Root lint may cover consumer JS test files, but consumer TS type contract files compile through the consumer `test:types` script.
 - Existing and new consumer scenarios should run through `node:test` with `node:assert/strict`; shell scripts and Docker Compose should only orchestrate publishing, installing, and test command execution.
+- Microservice lab packages live under `e2e/local-registry/microservices/consumer`, `gateway`, and `mock-provider`; Docker Compose service names may still use `micro-consumer`, `micro-gateway`, and `micro-provider`.
 ```
 
 Consumer test coverage should include:
