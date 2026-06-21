@@ -1,6 +1,6 @@
 {
   "name": "@echospecter/proxy-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Policy-driven proxy gateway for routing, transforming, and observing outbound HTTP requests through pluggable adapters.",
   "type": "module",
   "main": "./dist/index.cjs",
