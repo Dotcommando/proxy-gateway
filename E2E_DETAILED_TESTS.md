@@ -947,7 +947,7 @@ Next three steps reassessment:
   here and focus on Verdaccio source assertions rather than reshaping the
   package skeleton.
 
-### 3. Add Dedicated Microservice Compose Wiring
+### 3. Add Dedicated Microservice Compose Wiring - Completed
 
 Purpose:
 
@@ -978,6 +978,35 @@ docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.m
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d verdaccio
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
+
+Progress:
+
+- Added `e2e/local-registry/docker-compose.microservices.yml` with
+  `verdaccio`, `micro-consumer`, `micro-gateway`, and `micro-provider`
+  services.
+- Mapped service directories to `microservices/consumer`,
+  `microservices/gateway`, and `microservices/mock-provider`.
+- Added distinct `micro-*` node_modules/storage volumes and avoided fixed
+  `container_name` values so the lab can run under the dedicated compose
+  project name.
+- Kept gateway/provider commands as direct `node src/server.mjs` commands for
+  now; package install for the gateway starts in Step 5 after the local gateway
+  package is published.
+- Updated `e2e/local-registry/AGENTS.md` with the durable compose isolation
+  rule.
+- Verified compose config, `verdaccio` startup, and compose shutdown.
+
+Next three steps reassessment:
+
+- Step 4 is ready. It should add `src/server.mjs` files and package `start`
+  scripts for `gateway` and `mock-provider`, then add health tests that use
+  only Node built-ins so they can run before package-source assertions.
+- Step 5 needs one clarification: after publishing the local gateway package,
+  update the gateway container command to install dependencies before starting
+  the server, because Step 3 intentionally avoided install before publication.
+- Step 6 is ready after Step 5. Provider deterministic modes can build on the
+  `mock-provider` server introduced in Step 4 and should keep using the
+  existing `micro-provider` compose service.
 
 ### 4. Add Health Servers And Test Harness
 
@@ -1026,6 +1055,8 @@ Green:
   npmjs before the broader `@echospecter/*` local rule.
 - Add `publish-local-gateway.sh`.
 - Publish the current gateway repository path supplied through `GATEWAY_REPO`.
+- Update the `micro-gateway` compose command to install dependencies before
+  starting the server, now that the local gateway package has been published.
 - Install `@echospecter/proxy-gateway` from `http://verdaccio:4873` inside
   containers.
 - Install `@echospecter/proxy-fetch` from npmjs through Verdaccio.
