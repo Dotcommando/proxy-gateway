@@ -175,6 +175,7 @@ export enum RESPONSE_CODE {
   NO_PLANNABLE_PROVIDER = 'NO_PLANNABLE_PROVIDER',
   NO_ROUTE_MATCHED = 'NO_ROUTE_MATCHED',
   PIPELINE_STEP_ALREADY_REGISTERED = 'PIPELINE_STEP_ALREADY_REGISTERED',
+  PIPELINE_STEP_INVALID_ARGS = 'PIPELINE_STEP_INVALID_ARGS',
   PIPELINE_STEP_NOT_FOUND = 'PIPELINE_STEP_NOT_FOUND',
   PROXY_AUTH_ERROR = 'PROXY_AUTH_ERROR',
   PROXY_CONNECTION_ERROR = 'PROXY_CONNECTION_ERROR',
@@ -315,6 +316,20 @@ export enum PIPELINE_PHASE {
   VERIFY = 'verify',
 }
 
+export enum PIPELINE_STEP_TYPE {
+  PLAN_FALLBACK = 'plan.fallback',
+  PROVIDERS_EXCLUDE = 'providers.exclude',
+  PROVIDERS_INCLUDE = 'providers.include',
+  PROVIDERS_PRIORITY = 'providers.priority',
+  PROVIDERS_TAGS = 'providers.tags',
+  PROVIDERS_WEIGHTED = 'providers.weighted',
+  REQUIREMENTS_GEO = 'requirements.geo',
+  REQUIREMENTS_IDENTITY = 'requirements.identity',
+  REQUIREMENTS_MERGE = 'requirements.merge',
+  REQUIREMENTS_SET = 'requirements.set',
+  REQUIREMENTS_VERIFICATION = 'requirements.verification',
+}
+
 export enum PIPELINE_DECISION_KIND {
   CONTINUE = 'continue',
   REJECT = 'reject',
@@ -368,6 +383,21 @@ export enum PROXY_GEO_STRICTNESS {
   BEST_EFFORT = 'best-effort',
   PREFERRED = 'preferred',
   REQUIRED = 'required',
+}
+
+export enum PROXY_IDENTITY_ROTATION {
+  FIXED = 'fixed',
+  PER_REQUEST = 'per-request',
+  STICKY = 'sticky',
+}
+
+export enum PROXY_IDENTITY_ISOLATION_SCOPE {
+  ATTEMPT = 'attempt',
+  FLOW = 'flow',
+  PROVIDER = 'provider',
+  ROUTE = 'route',
+  TARGET_HOST = 'target-host',
+  TENANT = 'tenant',
 }
 
 export enum PROXY_PROVIDER_GEO_MODE {

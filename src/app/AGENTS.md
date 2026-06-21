@@ -14,6 +14,7 @@ The app layer coordinates gateway use-cases and ports. It is not the domain mode
 - redaction: safe diagnostics for headers, URLs, metadata, routes, logs, telemetry, and service errors.
 - retry: retry/fallback decisions over classified outcomes, retry policy, replayability, and attempt position.
 - security: target access policy and SSRF risk checks; no DNS/GeoIP intelligence by itself.
+- sessions: app-level sticky/session key derivation and session coordination. It may use outbound session-store ports but must not perform provider acquire, target transport, DNS, GeoIP intelligence, or provider-specific identity syntax.
 - timeouts: total-request and per-attempt timeout/abort orchestration.
 - types: app-layer composition/config/result types only.
 - use-cases: gateway orchestration, attempt execution, verification/retry coordination, and request-flow coordination.
@@ -27,7 +28,7 @@ Keep app-layer collaborators narrow. Do not put domain models, port contracts, w
 
 `HandleProxyFetchRequestUseCase` must not grow provider acquire/release, target transport, retry-loop, or lease-verification details inline when those details belong to dedicated app collaborators.
 
-Configured gateway plans must flow through `ExecutionPlanner` before attempt execution. Temporary direct provider selection may remain only as no-plan compatibility behavior.
+Configured gateway plans must flow through `ExecutionPlanner` before attempt execution. Explicit provider choice belongs in plan/route/default-route/pipeline configuration, not a separate provider-selection bridge. A no-plan fallback may select the first enabled provider only when no configured planning surface is present.
 
 `AttemptExecutor` belongs in `src/app/use-cases`. It consumes a `ProxyExecutionPlan`, acquires provider leases, checks route support, executes target transport, buffers target responses, applies timeout scopes, classifies outcomes, and releases leases. It returns app-level execution results, not Web `Response` objects.
 

@@ -5,10 +5,15 @@ import { createProvider } from './smoke-common.mjs';
 const requestBytes = Buffer.from('hello through json base64', 'utf8');
 const responseBytes = Buffer.from('base64 response bytes', 'utf8');
 const gateway = createProxyGateway({
-  providers: [createProvider()],
-  providerSelection: {
-    providerInstanceId: 'local-direct-provider'
+  plan: {
+    attempts: [
+      {
+        provider: 'local-direct-provider'
+      }
+    ],
+    kind: 'fallback'
   },
+  providers: [createProvider()],
   transport: {
     async execute(input) {
       const body = input.target.body;

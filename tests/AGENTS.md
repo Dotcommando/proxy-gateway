@@ -32,3 +32,17 @@ npm run pack:check
 ```
 
 Package contract tests should verify build artifacts, public ESM/CJS entrypoints, zero runtime dependency fields, and `npm pack --dry-run` contents. They must never publish the package. Packed package contents should include README, LICENSE, built ESM/CJS/types, and package metadata, and should not include `src/` or `tests/`.
+
+Do not keep tests that assert README prose or examples as permanent product tests. Documentation may be reviewed manually or through temporary checks while editing, but committed tests should focus on application behavior, public exports, package contents, and component wiring.
+
+Before final phase/release gates, run:
+
+```sh
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run pack:check
+```
+
+When package consumption or public install behavior changes, also run the local registry e2e flow under `e2e/local-registry`.

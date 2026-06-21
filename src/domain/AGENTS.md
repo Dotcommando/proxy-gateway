@@ -36,3 +36,5 @@ Route selection is a pure domain rule:
 ```
 
 Route selection should not perform provider acquire, transport execution, DNS, GeoIP, target probing, or policy pipeline execution.
+
+Route/default-route configs may carry opaque generic requirements so the app layer can bind them to `ProxyRouteRequirements`. Domain routing must preserve those values but not import outbound ports or interpret provider, protocol, geo, DNS, verification, or identity requirements.

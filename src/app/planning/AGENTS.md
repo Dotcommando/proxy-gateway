@@ -16,3 +16,5 @@ Geo behavior:
 `ExecutionPlanner` may mark a `ProxyExecutionAttempt` as requiring exit verification through `attempt.verification`. Lease verification itself belongs after `provider.acquire()` and before target transport execution.
 
 Planning must preserve structured requirements on generated attempts so later retry/verifier logic can reason about them.
+
+Route/default-route requirement merging belongs in app/planning because it works with outbound `ProxyRouteRequirements`. Route/default requirements act as defaults for every selected-plan attempt. Attempt-level fields override route defaults; nested `dns`, `geo`, `verification`, and `identity` objects merge by field; array fields are replaced by the attempt-level array instead of concatenated.

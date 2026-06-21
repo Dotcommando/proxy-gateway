@@ -3,6 +3,8 @@ import {
   PROXY_ATTEMPT_RESULT_OUTCOME,
   PROXY_DNS_MODE,
   PROXY_GEO_STRICTNESS,
+  PROXY_IDENTITY_ISOLATION_SCOPE,
+  PROXY_IDENTITY_ROTATION,
   PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
   PROXY_PROTOCOL,
@@ -89,10 +91,20 @@ export interface ProxyVerificationRequirements {
   verifyExit?: boolean;
 }
 
+export interface ProxyIdentityRequirements {
+  isolationKey?: string;
+  isolationScope?: PROXY_IDENTITY_ISOLATION_SCOPE[];
+  requestNewIdentity?: boolean;
+  rotation?: PROXY_IDENTITY_ROTATION;
+  stickySessionId?: string;
+  stickySessionTtlMs?: number;
+}
+
 export interface ProxyRouteRequirements {
   dns?: ProxyDnsRequirements;
   excludeProviderInstanceIds?: string[];
   geo?: ProxyGeoRequirements;
+  identity?: ProxyIdentityRequirements;
   networkTypes?: ProxyNetworkType[];
   protocols?: ProxyProtocol[];
   providerInstanceIds?: string[];
@@ -128,6 +140,7 @@ export interface ProxyProviderCandidate {
   priority?: number;
   providerInstanceId: string;
   providerKind: string;
+  tags?: string[];
   weight?: number;
 }
 
@@ -418,6 +431,7 @@ export interface ProxyProviderInstance {
 
 export interface RandomPort {
   createId(): string;
+  nextFloat?(): number;
 }
 
 export interface TargetTransportExecuteInput {
@@ -431,6 +445,27 @@ export interface TargetTransportExecuteInput {
 export interface TargetTransportPort {
   execute(input: TargetTransportExecuteInput): Promise<GatewayTargetResponse>;
   supportsRoute?(route: ProxyRoute): boolean;
+}
+
+export interface ProxySessionRecord {
+  expiresAt: Date;
+  identity?: ProxyIdentityRequirements;
+  key: string;
+  metadata?: Record<string, unknown>;
+  providerInstanceId: string;
+  providerKind: string;
+}
+
+export interface ProxySessionTouch {
+  expiresAt: Date;
+  key: string;
+}
+
+export interface ProxySessionStorePort {
+  deleteMany(keys: string[]): Promise<void>;
+  getMany(keys: string[]): Promise<ProxySessionRecord[]>;
+  setMany(records: ProxySessionRecord[]): Promise<void>;
+  touchMany(touches: ProxySessionTouch[]): Promise<void>;
 }
 
 export interface TargetFinalUrlCheckInput {

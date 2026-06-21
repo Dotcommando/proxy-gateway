@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   createProxyGateway,
   type GatewayTargetResponse,
+  PROXY_PLAN_KIND,
   PROXY_ROUTE_KIND,
   type ProxyAcquireInput,
   type ProxyProviderInstance,
@@ -15,8 +16,13 @@ describe('multiple provider instances', () => {
   it('selects a configured provider instance even when another instance has the same adapter kind', async () => {
     const acquired: Array<{ id: string; input: ProxyAcquireInput }> = [];
     const gateway = createProxyGateway({
-      providerSelection: {
-        providerInstanceId: 'static-secondary',
+      plan: {
+        attempts: [
+          {
+            provider: 'static-secondary',
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
       },
       providers: [
         providerInstance('static-primary', acquired),
@@ -50,11 +56,16 @@ describe('multiple provider instances', () => {
     expect(acquired[0]?.id).toBe('enabled-secondary');
   });
 
-  it('returns a stable service error when provider selection references an unknown provider instance', async () => {
+  it('returns a stable service error when a configured plan references an unknown provider instance', async () => {
     const acquired: Array<{ id: string; input: ProxyAcquireInput }> = [];
     const gateway = createProxyGateway({
-      providerSelection: {
-        providerInstanceId: 'missing-provider',
+      plan: {
+        attempts: [
+          {
+            provider: 'missing-provider',
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
       },
       providers: [providerInstance('available-provider', acquired)],
       transport: okTransport(),
@@ -66,6 +77,7 @@ describe('multiple provider instances', () => {
       error: {
         code: RESPONSE_CODE.PROVIDER_INSTANCE_NOT_FOUND,
         message: 'Provider instance "missing-provider" was not found or is disabled.',
+        retryable: false,
       },
       ok: false,
       version: WIRE_PROTOCOL_VERSION,

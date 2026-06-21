@@ -12,10 +12,15 @@ import {
 } from './smoke-common.mjs';
 
 const gateway = createProxyGateway({
-  providers: [createProvider()],
-  providerSelection: {
-    providerInstanceId: 'local-direct-provider'
+  plan: {
+    attempts: [
+      {
+        provider: 'local-direct-provider'
+      }
+    ],
+    kind: 'fallback'
   },
+  providers: [createProvider()],
   transport: createTransport()
 });
 const handler = createNodeHttpHandler(gateway);

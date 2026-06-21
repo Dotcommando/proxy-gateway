@@ -1,7 +1,14 @@
 import * as gateway from '@echospecter/proxy-gateway';
 
 const expectedExports = [
+  'PIPELINE_STEP_TYPE',
+  'PROXY_GEO_STRICTNESS',
+  'PROXY_IDENTITY_ROTATION',
+  'PROXY_PLAN_KIND',
+  'PROXY_PROVIDER_COUNTRY_SELECTION',
+  'PROXY_PROVIDER_GEO_MODE',
   'createNodeHttpHandler',
+  'createMemoryProxySessionStore',
   'createProxyGateway',
   'WIRE_PROTOCOL_VERSION'
 ];

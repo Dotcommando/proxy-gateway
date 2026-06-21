@@ -1,8 +1,13 @@
 import type { PROXY_NETWORK_TYPE } from '../../constants';
 import type { StringMatcher } from '../../domain';
+import type { ProxyDefaultRouteConfig, ProxyRouteConfig } from '../../domain/routing';
 import type {
   ProxyExitVerifierPort,
+  ProxyPipelineConfig,
+  ProxyPipelineStepRegistryPort,
   ProxyProviderInstance,
+  ProxyRouteRequirements,
+  ProxySessionStorePort,
   RandomPort,
   TargetTransportPort,
 } from '../../ports/outbound';
@@ -20,20 +25,20 @@ export interface BodyBufferingPolicy {
 
 export interface ProxyGatewayOptions {
   bodyBuffering?: BodyBufferingPolicy;
+  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>;
   exitVerifier?: ProxyExitVerifierPort;
   plan?: ProxyPlanConfig;
-  providerSelection?: ProviderSelectionConfig;
+  pipelines?: ProxyPipelineConfig[];
   providers: ProxyProviderInstance[];
   random?: RandomPort;
   redaction?: RedactionPolicy;
   retrySafety?: RetrySafetyPolicy;
+  routes?: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>>;
+  sessionStore?: ProxySessionStorePort;
+  stepRegistry?: ProxyPipelineStepRegistryPort;
   targetAccess?: TargetAccessPolicy;
   timeouts?: TimeoutPolicy;
   transport?: TargetTransportPort;
-}
-
-export interface ProviderSelectionConfig {
-  providerInstanceId?: string;
 }
 
 export interface RetrySafetyPolicy {

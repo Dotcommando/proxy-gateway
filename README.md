@@ -145,30 +145,25 @@ export interface ProxyGateway {
 
 export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
+  routes?: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>>;
+  defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>;
   pipelines?: ProxyPipelineConfig[];
-  policy?: ProxyRoutingPolicy;
-
-  services?: ProxyGatewayServices;
-  stepRegistry?: ProxyPipelineStepRegistry;
+  stepRegistry?: ProxyPipelineStepRegistryPort;
   transport?: TargetTransportPort;
 
   targetAccess?: TargetAccessPolicy;
   retrySafety?: RetrySafetyPolicy;
   bodyBuffering?: BodyBufferingPolicy;
-  responseStreaming?: ResponseStreamingPolicy;
   redaction?: RedactionPolicy;
-  limits?: GatewayLimits;
+  timeouts?: TimeoutPolicy;
+  plan?: ProxyPlanConfig;
 
   sessionStore?: ProxySessionStorePort;
-  secretResolver?: SecretResolverPort;
-  rateLimiter?: RateLimiterPort;
-  logger?: GatewayLoggerPort;
-  telemetry?: GatewayTelemetryPort;
-  clock?: ClockPort;
   random?: RandomPort;
 }
 
 export function createProxyGateway(options: ProxyGatewayOptions): ProxyGateway;
+export function createMemoryProxySessionStore(): ProxySessionStorePort;
 ```
 
 The primary integration point is `ProxyGateway.handle(request)`. Framework-specific integrations should delegate to this method.
@@ -300,6 +295,75 @@ const socks5hRoute: ForwardProxyRoute = {
 
 Use `socks5h` with proxy DNS when the hostname must be resolved by the proxy, such as Tor-like or privacy-sensitive routes. Do not use `socks5` when remote DNS is required.
 
+## Route Configuration
+
+Use `routes` when target requests should select different configured plans by host, path, URL, or method. Use `defaultRoute` when unmatched requests should still have a planned execution path.
+
+```ts
+import {
+  createProxyGateway,
+  PROXY_GEO_STRICTNESS,
+  PROXY_PLAN_KIND,
+  type ProxyDefaultRouteConfig,
+  type ProxyPlanConfig,
+  type ProxyRouteConfig,
+  type ProxyRouteRequirements,
+} from '@echospecter/proxy-gateway';
+
+const gbRequirements: ProxyRouteRequirements = {
+  geo: {
+    country: 'GB',
+    strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+  },
+  networkTypes: ['residential'],
+};
+
+const routes: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>> = [
+  {
+    id: 'search-gb',
+    priority: 100,
+    match: {
+      host: { type: 'suffix', value: 'google.com' },
+      method: ['GET', 'POST'],
+    },
+    requirements: gbRequirements,
+    plan: {
+      kind: PROXY_PLAN_KIND.FALLBACK,
+      attempts: [
+        {
+          provider: 'primary-residential-gb',
+          maxAttempts: 2,
+          timeoutMs: 15_000,
+          retryOn: ['proxy-timeout', 'target-network-error', 'http-429'],
+        },
+        {
+          provider: 'fallback-residential-gb',
+          maxAttempts: 1,
+          timeoutMs: 20_000,
+          retryOn: ['proxy-timeout', 'target-network-error'],
+        },
+      ],
+    },
+  },
+];
+
+const defaultRoute: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements> = {
+  id: 'default-direct',
+  plan: {
+    kind: PROXY_PLAN_KIND.FALLBACK,
+    attempts: [{ provider: 'direct-provider' }],
+  },
+};
+
+const gateway = createProxyGateway({
+  providers,
+  routes,
+  defaultRoute,
+});
+```
+
+Higher-priority routes are checked first, and equal priority keeps declaration order. If no route matches and no `defaultRoute` is configured, the gateway returns a service-level routing error.
+
 ## Routing Policies
 
 Most applications can use declarative pipelines. A pipeline matches a target request, adjusts requirements, selects/ranks providers, and builds an execution plan.
@@ -327,9 +391,21 @@ export interface ProxyPipelineStepConfig {
 
 `when` is a declarative prefilter. If it is absent, the pipeline applies. `match` is an optional programmable phase that runs only after `when` matches.
 
+Built-in step names are available through `PIPELINE_STEP_TYPE` and can also be represented as strings in JSON configuration. Common built-ins include:
+
+- `requirements.geo` for country/region/ASN requirements;
+- `requirements.identity` for sticky or per-request identity requirements;
+- `requirements.verification` for exit verification requirements;
+- `providers.tags` for tag-based provider filtering;
+- `providers.priority` for priority-based provider ordering;
+- `providers.weighted` for weighted provider ordering;
+- `plan.fallback` for fallback execution plans.
+
 Example:
 
 ```ts
+import { PIPELINE_STEP_TYPE, PROXY_GEO_STRICTNESS } from '@echospecter/proxy-gateway';
+
 const pipelines: ProxyPipelineConfig[] = [
   {
     id: 'serp-gb',
@@ -339,30 +415,33 @@ const pipelines: ProxyPipelineConfig[] = [
     },
     require: [
       {
-        use: 'requirements.set',
+        use: PIPELINE_STEP_TYPE.REQUIREMENTS_GEO,
         args: {
-          networkTypes: ['residential'],
-          protocols: ['http', 'https', 'socks5h'],
-          geo: { country: 'GB', strictness: 'required' },
+          country: 'GB',
+          strictness: PROXY_GEO_STRICTNESS.REQUIRED,
         },
+      },
+    ],
+    select: [
+      {
+        use: PIPELINE_STEP_TYPE.PROVIDERS_TAGS,
+        args: { tags: ['residential', 'gb'] },
+      },
+    ],
+    rank: [
+      {
+        use: PIPELINE_STEP_TYPE.PROVIDERS_PRIORITY,
       },
     ],
     plan: [
       {
-        use: 'plan.fallback',
+        use: PIPELINE_STEP_TYPE.PLAN_FALLBACK,
         args: {
           attempts: [
             {
-              provider: 'primary-residential-gb',
               maxAttempts: 2,
               timeoutMs: 15_000,
               retryOn: ['proxy-timeout', 'target-network-error', 'http-429'],
-            },
-            {
-              provider: 'fallback-residential-gb',
-              maxAttempts: 1,
-              timeoutMs: 20_000,
-              retryOn: ['proxy-timeout', 'target-network-error'],
             },
           ],
         },
@@ -372,7 +451,55 @@ const pipelines: ProxyPipelineConfig[] = [
 ];
 ```
 
-If you need fully custom routing, provide a programmatic `ProxyRoutingPolicy`.
+Route/default-route requirements feed pipelines as base requirements. Selected pipeline plans win over route/default/direct plans. If configured pipelines skip or complete without a plan, the gateway falls through to the selected route/default plan or direct `plan`. When `pipelines` is configured, the gateway does not silently pick the first enabled provider after pipeline fallthrough.
+
+If you need fully custom routing, provide explicit plans or custom pipeline steps from application code.
+
+## Sessions
+
+Sticky-session behavior is configured through route or pipeline requirements and a session store.
+
+```ts
+import {
+  createMemoryProxySessionStore,
+  createProxyGateway,
+  PROXY_PLAN_KIND,
+  PROXY_IDENTITY_ISOLATION_SCOPE,
+  PROXY_IDENTITY_ROTATION,
+} from '@echospecter/proxy-gateway';
+
+const stickyIdentity = {
+  rotation: PROXY_IDENTITY_ROTATION.STICKY,
+  stickySessionId: 'google-search-session',
+  stickySessionTtlMs: 10 * 60 * 1000,
+  isolationScope: [
+    PROXY_IDENTITY_ISOLATION_SCOPE.TENANT,
+    PROXY_IDENTITY_ISOLATION_SCOPE.FLOW,
+    PROXY_IDENTITY_ISOLATION_SCOPE.ROUTE,
+    PROXY_IDENTITY_ISOLATION_SCOPE.TARGET_HOST,
+  ],
+};
+
+const gateway = createProxyGateway({
+  providers,
+  routes: [
+    {
+      id: 'sticky-search',
+      match: { host: { type: 'suffix', value: 'google.com' } },
+      requirements: {
+        identity: stickyIdentity,
+      },
+      plan: {
+        kind: PROXY_PLAN_KIND.FALLBACK,
+        attempts: [{ provider: 'primary-residential-gb' }],
+      },
+    },
+  ],
+  sessionStore: createMemoryProxySessionStore(),
+});
+```
+
+Sticky-session records are read before planning and written after a successful attempt. Expired records are treated as misses and can be cleaned up by the gateway read path. `requestNewIdentity: true` bypasses an existing sticky record and replaces it after a successful attempt. Applications that need shared or durable sticky sessions can implement `ProxySessionStorePort`.
 
 ## Matchers
 
@@ -401,6 +528,8 @@ Priority decides conflicts:
 - equal priority keeps declaration order;
 - `exclude` is evaluated after a positive match;
 - no match returns a service-level routing error unless a default route is configured.
+
+Route and default-route `requirements` are defaults for every attempt in the selected route plan. Attempt-level requirements override route defaults. Nested `dns`, `geo`, `verification`, and `identity` requirements merge by field; array fields such as `providerInstanceIds`, `excludeProviderInstanceIds`, `protocols`, `networkTypes`, and `identity.isolationScope` are replaced by the attempt-level array instead of concatenated.
 
 ## Body Buffering
 
@@ -544,7 +673,7 @@ const handler = createNodeHttpHandler(gateway);
 createServer(handler).listen(3000);
 ```
 
-The core v0.1 package does not export Express, Fastify, or NestJS wrappers. Use `ProxyGateway.handle(request)` directly from your application, or use separate framework adapter packages when they are available. Framework routes must preserve the raw `proxy-fetch.v1` request body bytes before calling the gateway.
+The core package does not export Express, Fastify, or NestJS wrappers. Use `ProxyGateway.handle(request)` directly from your application, or use separate framework adapter packages when they are available. Framework routes must preserve the raw `proxy-fetch.v1` request body bytes before calling the gateway.
 
 ## Configuration
 
