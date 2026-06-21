@@ -879,7 +879,7 @@ Next three steps reassessment:
 - There is no Step 26. No additional AGENTS work is planned unless release-gate checks uncover a missing durable rule.
 - Remaining work after Step 25 should be limited to final cleanup discovered by the release gate.
 
-## 25. v0.2 Release Gate
+## 25. v0.2 Release Gate - Completed
 
 Purpose:
 - Final package check for the phase.
@@ -902,6 +902,31 @@ Verify:
 - `npm run prepublishOnly`
 - Local registry publish/install e2e passes.
 
+Progress:
+- Added package contract smoke checks for v0.2 runtime exports in built ESM/CJS entries: `createMemoryProxySessionStore`, pipeline/identity/geo/plan/provider enum exports, and existing deferred framework wrapper absence.
+- Confirmed the removed `providerSelection` bridge remains covered by public type tests and that explicit provider choice belongs in direct plans, route/default-route plans, or pipeline output.
+- Confirmed package contents include only README, LICENSE, package metadata, and built ESM/CJS/types/map artifacts; no `src/` or `tests/` are packed.
+- Completed the full release gate and local registry publish/install smoke.
+
+Verify:
+- `npm test -- --runTestsByPath tests/package-contract.test.ts`
+- `npm run lint`
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
+- `npm run pack:check`
+- `npm run prepublishOnly`
+- `./e2e/local-registry/scripts/reset-registry.sh`
+- `docker compose -f e2e/local-registry/docker-compose.yml up -d verdaccio`
+- `./e2e/local-registry/scripts/publish-local.sh .`
+- `docker compose -f e2e/local-registry/docker-compose.yml run --rm consumer`
+- `docker compose -f e2e/local-registry/docker-compose.yml down`
+
+Next three steps reassessment:
+- There are no remaining phase steps. v0.2 phase work is complete pending ordinary review/commit workflow.
+- No additional AGENTS updates were discovered during the release gate.
+- Future work should start from a new phase/task file rather than extending this completed plan.
+
 ## Remaining PR Order
 
-1. v0.2 release gate.
+Completed.
