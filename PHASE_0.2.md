@@ -845,7 +845,7 @@ Next three steps reassessment:
 - Step 25 remains ready. It should run the final release gate and check that README/package exports/package contents align with the public v0.2 surface.
 - There is no Step 26. If Step 24 finds no AGENTS gaps, Step 25 can proceed directly after documenting that audit.
 
-## 24. Nested AGENTS.md Updates
+## 24. Nested AGENTS.md Updates - Completed
 
 Purpose:
 - Preserve durable v0.2 architecture decisions before deleting this phase file.
@@ -861,6 +861,23 @@ Green:
 
 Verify:
 - Manual diff review.
+
+Progress:
+- Audited route/pipeline/session/local-registry/test contracts against completed v0.2 work.
+- Updated `src/app/pipeline/AGENTS.md` to clarify final pipeline wiring: pipelines run after target access and after route/default selection supplies base requirements; selected pipeline plans win; skipped/no-plan pipelines can fall through only to route/default/direct plans, never to no-plan provider fallback while pipelines are configured.
+- Updated `tests/AGENTS.md` with the durable testing rule that README prose/example assertions should not remain as permanent product tests; committed tests should focus on application behavior, public exports, package contents, and component wiring.
+- Updated `tests/AGENTS.md` with final phase/release-gate command expectations and local-registry e2e guidance for package-consumption changes.
+- Updated `e2e/local-registry/AGENTS.md` wording for v0.2 consumer smoke coverage, including route/default config, route fallback, pipeline built-ins, sticky sessions, memory store, and public type imports.
+- Confirmed existing `src/app/use-cases/AGENTS.md`, `src/app/sessions/AGENTS.md`, `src/app/planning/AGENTS.md`, `src/ports/outbound/AGENTS.md`, `src/domain/AGENTS.md`, and `src/adapters/outbound/AGENTS.md` already capture the remaining v0.2 session, planning, route selection, and port ownership rules.
+
+Verify:
+- Manual diff review.
+- `git diff --check`
+
+Next three steps reassessment:
+- Step 25 is ready. It should run the release-gate commands listed in Step 25 and now mirrored in `tests/AGENTS.md`.
+- There is no Step 26. No additional AGENTS work is planned unless release-gate checks uncover a missing durable rule.
+- Remaining work after Step 25 should be limited to final cleanup discovered by the release gate.
 
 ## 25. v0.2 Release Gate
 
@@ -887,5 +904,4 @@ Verify:
 
 ## Remaining PR Order
 
-1. Nested AGENTS.md audit for remaining route/pipeline/e2e/release rules.
-2. v0.2 release gate.
+1. v0.2 release gate.
