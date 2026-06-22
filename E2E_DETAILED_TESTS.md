@@ -899,7 +899,7 @@ Next three steps reassessment:
   `health.test.mjs` tests and should reuse the helper/assertion style from the
   converted consumer suite.
 
-### 2. Add Microservice Test Package Skeleton - Completed
+### 2. Add Microservice Test Package Skeleton
 
 Purpose:
 
@@ -928,32 +928,6 @@ Verify:
 npm --prefix e2e/local-registry/microservices/consumer run test:e2e
 ```
 
-Progress:
-
-- Created `e2e/local-registry/microservices/consumer`, `gateway`, and
-  `mock-provider` package skeletons.
-- Added `micro-consumer` package script `test:e2e` using the Node test runner.
-- Added one passing `skeleton.test.mjs` to prove the new test package runs
-  without Docker Compose wiring.
-- Added package dependencies according to the intended source split:
-  `@echospecter/proxy-fetch` in the consumer and local-tagged
-  `@echospecter/proxy-gateway` in the gateway package.
-- Updated `e2e/local-registry/AGENTS.md` with the durable directory/service
-  naming rule for the microservice lab.
-- Verified with the focused Step 2 command plus root lint/typecheck.
-
-Next three steps reassessment:
-
-- Step 3 needed clarification after the skeleton test landed: it should add
-  compose wiring only, with service names `micro-consumer`, `micro-gateway`,
-  and `micro-provider` mapped to package directories `consumer`, `gateway`, and
-  `mock-provider`. Health behavior remains out of scope for Step 3.
-- Step 4 is ready after Step 3. It should add the first runnable server files
-  under `gateway/src` and `mock-provider/src`, then add consumer health tests.
-- Step 5 is ready after Step 4. It should reuse the package manifests created
-  here and focus on Verdaccio source assertions rather than reshaping the
-  package skeleton.
-
 ### 3. Add Dedicated Microservice Compose Wiring - Completed
 
 Purpose:
@@ -962,17 +936,14 @@ Purpose:
 
 Red:
 
-- `docker compose -p proxy-gateway-micro-e2e -f
-  e2e/local-registry/docker-compose.microservices.yml config` fails because the
-  compose file does not exist.
-- Do not add server health behavior or scenario assertions in this step.
+- Add `docker-compose.microservices.yml`.
+- `micro-consumer` should fail until `micro-gateway` and `micro-provider`
+  expose health endpoints.
 
 Green:
 
 - Add `verdaccio`, `micro-consumer`, `micro-gateway`, and `micro-provider`
   services.
-- Map service directories to `microservices/consumer`, `microservices/gateway`,
-  and `microservices/mock-provider`.
 - Use distinct volumes: `micro-consumer-node-modules`,
   `micro-gateway-node-modules`, `micro-provider-node-modules`, and
   `micro-verdaccio-storage`.
@@ -1032,8 +1003,6 @@ Green:
 - Add `GET /health` to `micro-gateway` and `micro-provider`.
 - Add `micro-consumer` helpers that wait for health endpoints.
 - Add a passing `health.test.mjs` in `micro-consumer`.
-- Keep the Step 2 skeleton test passing or replace it with a real health test
-  only if the new health test fully proves the test runner wiring.
 
 Verify:
 
@@ -1140,7 +1109,7 @@ Next three steps reassessment:
   install-before-test focused command unless the full default consumer command
   is intentionally used.
 
-### 6. Implement Mock Provider Deterministic Modes
+### 6. Implement Mock Provider Deterministic Modes - Completed
 
 Purpose:
 
@@ -1172,6 +1141,33 @@ docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.m
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern provider"
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
+
+Progress:
+
+- Extended `mock-provider/src/server.mjs` with `POST /execute`.
+- Added deterministic modes for text, JSON, binary, `204`, `205`, `304`,
+  target `404`, target `500`, slow response, provider failure, safe redirect,
+  and denied redirect.
+- Added in-memory observations with `GET /observations` and
+  `POST /observations/reset`.
+- Added `provider-deterministic.test.mjs` consumer tests covering the provider
+  modes and observation recording.
+- Renamed the health test title so the focused `provider` filter does not
+  accidentally run health checks that require `micro-gateway`.
+- Updated `e2e/local-registry/AGENTS.md` with the durable mock-provider
+  deterministic API rule.
+- Verified the Step 6 compose flow and local lint/typecheck.
+
+Next three steps reassessment:
+
+- Step 7 is ready. It can use `POST /execute` for the deterministic text path
+  and can rely on provider observations already existing.
+- Step 8 is ready after Step 7, but request body observation needs should extend
+  the current observation records rather than introduce a second observation
+  store.
+- Step 9 should use the same install-before-test focused compose command as
+  Steps 6-8 because the binary request tests need `@echospecter/proxy-fetch`
+  installed in `micro-consumer`.
 
 ### 7. Implement Micro Gateway Deterministic Path
 
@@ -1253,7 +1249,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern request-binary
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern request-binary"
 ```
 
 ### 10. Add Deterministic Response Format Tests

@@ -8,7 +8,7 @@ const gatewayBaseUrl =
 const providerBaseUrl =
   process.env.MICRO_PROVIDER_BASE_URL ?? 'http://localhost:8081';
 
-test('microservice gateway and provider expose health endpoints', async () => {
+test('microservice health endpoints are reachable', async () => {
   const [gateway, provider] = await Promise.all([
     waitForJson(`${gatewayBaseUrl}/health`),
     waitForJson(`${providerBaseUrl}/health`),

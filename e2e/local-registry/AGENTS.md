@@ -34,6 +34,7 @@ Rules:
 - Verdaccio config must list the `@echospecter/proxy-fetch` npmjs uplink rule before the broader local-only `@echospecter/*` package rule.
 - Focused `micro-consumer` compose runs that require installed packages should execute `npm install --package-lock=false --no-audit --no-fund` before `npm run test:e2e -- --test-name-pattern ...`.
 - `reset-registry.sh` must reset both the existing local-registry compose lab and the microservice compose lab volumes.
+- The mock-provider deterministic API is `POST /execute` plus `GET /observations` and `POST /observations/reset`; deterministic tests should use it before adding live public endpoint coverage.
 ```
 
 Consumer test coverage should include:
