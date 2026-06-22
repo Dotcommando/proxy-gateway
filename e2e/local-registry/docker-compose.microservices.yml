@@ -42,7 +42,9 @@ services:
       NPM_CONFIG_REGISTRY: http://verdaccio:4873
       MICRO_GATEWAY_PORT: "8080"
       MICRO_PROVIDER_BASE_URL: http://micro-provider:8081
-    command: npm run start
+    command: >
+      sh -lc "npm install --package-lock=false --no-audit --no-fund
+      && npm run start"
 
   micro-provider:
     image: node:20-alpine

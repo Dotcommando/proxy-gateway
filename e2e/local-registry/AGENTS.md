@@ -31,6 +31,9 @@ Rules:
 - Microservice lab packages live under `e2e/local-registry/microservices/consumer`, `gateway`, and `mock-provider`; Docker Compose service names may still use `micro-consumer`, `micro-gateway`, and `micro-provider`.
 - The microservice compose lab must use a dedicated project name, distinct `micro-*` volumes, and no fixed `container_name` values so it can coexist with the existing local-registry lab.
 - The microservice consumer should use Node test discovery in its `test:e2e` script so npm can append focused filters such as `--test-name-pattern health`.
+- Verdaccio config must list the `@echospecter/proxy-fetch` npmjs uplink rule before the broader local-only `@echospecter/*` package rule.
+- Focused `micro-consumer` compose runs that require installed packages should execute `npm install --package-lock=false --no-audit --no-fund` before `npm run test:e2e -- --test-name-pattern ...`.
+- `reset-registry.sh` must reset both the existing local-registry compose lab and the microservice compose lab volumes.
 ```
 
 Consumer test coverage should include:

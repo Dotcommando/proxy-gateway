@@ -16,6 +16,10 @@ uplinks:
     url: https://registry.npmjs.org/
 
 packages:
+  '@echospecter/proxy-fetch':
+    access: $all
+    proxy: npmjs
+
   '@echospecter/*':
     access: $all
     publish: $anonymous

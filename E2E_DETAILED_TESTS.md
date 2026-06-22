@@ -1071,7 +1071,7 @@ Next three steps reassessment:
   `gateway/src/server.mjs` from health-only behavior to the real installed
   gateway path, not create a second gateway server file.
 
-### 5. Publish Local Gateway And Resolve Proxy Fetch From npm
+### 5. Publish Local Gateway And Resolve Proxy Fetch From npm - Completed
 
 Purpose:
 
@@ -1104,9 +1104,41 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d verdaccio
 ./e2e/local-registry/scripts/publish-local-gateway.sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-gateway
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern package
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern package"
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
+
+Progress:
+
+- Added a specific Verdaccio package rule that proxies
+  `@echospecter/proxy-fetch` through the npmjs uplink before the broader local
+  `@echospecter/*` rule.
+- Added `scripts/publish-local-gateway.sh`, defaulting to the repository root
+  or accepting `GATEWAY_REPO`/an explicit path.
+- Updated `reset-registry.sh` so it resets both the existing local-registry lab
+  and the microservice compose project volumes.
+- Updated `micro-gateway` compose command to install dependencies before
+  starting now that the local gateway package is published in this step.
+- Added `GET /package-source` to `micro-gateway` and a
+  `package-source.test.mjs` consumer test that verifies installed
+  `@echospecter/proxy-fetch` and installed `@echospecter/proxy-gateway`.
+- Updated `e2e/local-registry/AGENTS.md` with durable rules for Verdaccio
+  package ordering, focused install+test commands, and reset coverage.
+- Verified reset, local gateway publish, gateway install/start, and focused
+  package-source assertions. The publish path ran `prepublishOnly`, including
+  lint, typecheck, 46 Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 6 is ready. Its provider-focused consumer verify command should include
+  the same install-before-test wrapper because focused compose commands bypass
+  the default `micro-consumer` command.
+- Step 7 is ready after Step 6. It can now import installed gateway APIs from
+  the `micro-gateway` package because Step 5 established package installation
+  and the `/package-source` check.
+- Step 8 is ready after Step 7. Request-format tests should also use the
+  install-before-test focused command unless the full default consumer command
+  is intentionally used.
 
 ### 6. Implement Mock Provider Deterministic Modes
 
@@ -1137,7 +1169,7 @@ Verify:
 
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d verdaccio micro-provider
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern provider
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern provider"
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
 
@@ -1169,7 +1201,7 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d verdaccio
 ./e2e/local-registry/scripts/publish-local-gateway.sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern deterministic
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern deterministic"
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
 
@@ -1195,7 +1227,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern request-json
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern request-json"
 ```
 
 ### 9. Add Request Format Tests: Binary, Multipart, Stream, Base64
