@@ -480,12 +480,19 @@ Consumer package:
 ```json
 {
   "scripts": {
-    "test:e2e": "node --test --test-reporter=spec src/*.test.mjs"
+    "test:e2e": "node --test --test-reporter=spec"
   },
   "dependencies": {
     "@echospecter/proxy-fetch": "^0.1.0"
   }
 }
+```
+
+Use Node test discovery for `micro-consumer` so focused verify commands can
+append Node test filters through npm, for example:
+
+```sh
+npm run test:e2e -- --test-name-pattern health
 ```
 
 Gateway package:
@@ -1008,7 +1015,7 @@ Next three steps reassessment:
   `mock-provider` server introduced in Step 4 and should keep using the
   existing `micro-provider` compose service.
 
-### 4. Add Health Servers And Test Harness
+### 4. Add Health Servers And Test Harness - Completed
 
 Purpose:
 
@@ -1035,6 +1042,34 @@ docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.m
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern health
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
+
+Progress:
+
+- Added health-only `src/server.mjs` files for `micro-gateway` and
+  `micro-provider`, each using Node built-in `node:http`.
+- Added `start` scripts to the gateway and mock-provider packages and wired the
+  compose services to run those scripts.
+- Added `MICRO_GATEWAY_BASE_URL` and `MICRO_PROVIDER_BASE_URL` to
+  `micro-consumer` compose environment.
+- Added `micro-consumer` health test plus a small HTTP helper that waits for
+  JSON health responses.
+- Changed `micro-consumer` `test:e2e` to use Node test discovery so focused
+  npm filters such as `--test-name-pattern health` are passed before test file
+  discovery.
+- Updated `e2e/local-registry/AGENTS.md` with the durable rule for
+  `micro-consumer` test discovery.
+- Verified the compose health flow and local lint/typecheck.
+
+Next three steps reassessment:
+
+- Step 5 is ready. It should publish/install packages and add package-source
+  assertions without changing the basic health contract introduced here.
+- Step 6 is ready after Step 5. It should extend the existing
+  `mock-provider/src/server.mjs` with `/execute` and observations instead of
+  replacing the server.
+- Step 7 needs a scope clarification: it should extend the existing
+  `gateway/src/server.mjs` from health-only behavior to the real installed
+  gateway path, not create a second gateway server file.
 
 ### 5. Publish Local Gateway And Resolve Proxy Fetch From npm
 
@@ -1120,7 +1155,7 @@ Red:
 
 Green:
 
-- Add `micro-gateway` `server.mjs`.
+- Extend the existing health-only `micro-gateway` `server.mjs`.
 - Import `createProxyGateway` and `createNodeHttpHandler` from the installed
   gateway package.
 - Configure one mock provider adapter.

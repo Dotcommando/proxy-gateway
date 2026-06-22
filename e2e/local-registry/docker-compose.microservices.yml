@@ -22,6 +22,8 @@ services:
       - ./microservices/consumer:/app
       - micro-consumer-node-modules:/app/node_modules
     environment:
+      MICRO_GATEWAY_BASE_URL: http://micro-gateway:8080
+      MICRO_PROVIDER_BASE_URL: http://micro-provider:8081
       NPM_CONFIG_REGISTRY: http://verdaccio:4873
     command: >
       sh -lc "npm install --package-lock=false --no-audit --no-fund
@@ -40,7 +42,7 @@ services:
       NPM_CONFIG_REGISTRY: http://verdaccio:4873
       MICRO_GATEWAY_PORT: "8080"
       MICRO_PROVIDER_BASE_URL: http://micro-provider:8081
-    command: node src/server.mjs
+    command: npm run start
 
   micro-provider:
     image: node:20-alpine
@@ -54,7 +56,7 @@ services:
     environment:
       NPM_CONFIG_REGISTRY: http://verdaccio:4873
       MICRO_PROVIDER_PORT: "8081"
-    command: node src/server.mjs
+    command: npm run start
 
 volumes:
   micro-consumer-node-modules:
