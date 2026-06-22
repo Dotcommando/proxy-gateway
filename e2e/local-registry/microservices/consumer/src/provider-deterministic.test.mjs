@@ -6,7 +6,7 @@ import { waitForJson } from './helpers/http.mjs';
 const providerBaseUrl =
   process.env.MICRO_PROVIDER_BASE_URL ?? 'http://localhost:8081';
 
-test('mock provider records deterministic execute observations', async () => {
+test('mock provider records execute observations', async () => {
   await resetObservations();
 
   const response = await execute('text');
@@ -19,7 +19,7 @@ test('mock provider records deterministic execute observations', async () => {
   assert.equal(observations.items[0].path, '/execute');
 });
 
-test('mock provider returns deterministic body modes', async () => {
+test('mock provider returns body modes', async () => {
   const text = await execute('text');
   assert.equal(text.status, 200);
   assert.match(text.headers.get('content-type') ?? '', /^text\/plain\b/u);
@@ -45,7 +45,7 @@ test('mock provider returns deterministic body modes', async () => {
   );
 });
 
-test('mock provider returns deterministic status modes', async () => {
+test('mock provider returns status modes', async () => {
   assert.equal((await execute('no-content-204')).status, 204);
   assert.equal((await execute('reset-content-205')).status, 205);
   assert.equal((await execute('not-modified-304')).status, 304);
@@ -59,7 +59,7 @@ test('mock provider returns deterministic status modes', async () => {
   assert.equal(await targetError.text(), 'deterministic target 500');
 });
 
-test('mock provider returns deterministic slow and failure modes', async () => {
+test('mock provider returns slow and failure modes', async () => {
   const startedAt = Date.now();
   const slow = await execute('slow', {
     delayMs: 120,
@@ -76,7 +76,7 @@ test('mock provider returns deterministic slow and failure modes', async () => {
   });
 });
 
-test('mock provider returns deterministic redirect modes', async () => {
+test('mock provider returns redirect modes', async () => {
   const safe = await execute('redirect-safe');
   assert.equal(safe.status, 302);
   assert.equal(safe.headers.get('location'), 'https://example.com/final');

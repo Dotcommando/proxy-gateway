@@ -1040,7 +1040,7 @@ Next three steps reassessment:
   `gateway/src/server.mjs` from health-only behavior to the real installed
   gateway path, not create a second gateway server file.
 
-### 5. Publish Local Gateway And Resolve Proxy Fetch From npm - Completed
+### 5. Publish Local Gateway And Resolve Proxy Fetch From npm
 
 Purpose:
 
@@ -1073,41 +1073,9 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d verdaccio
 ./e2e/local-registry/scripts/publish-local-gateway.sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-gateway
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern package"
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern package
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
-
-Progress:
-
-- Added a specific Verdaccio package rule that proxies
-  `@echospecter/proxy-fetch` through the npmjs uplink before the broader local
-  `@echospecter/*` rule.
-- Added `scripts/publish-local-gateway.sh`, defaulting to the repository root
-  or accepting `GATEWAY_REPO`/an explicit path.
-- Updated `reset-registry.sh` so it resets both the existing local-registry lab
-  and the microservice compose project volumes.
-- Updated `micro-gateway` compose command to install dependencies before
-  starting now that the local gateway package is published in this step.
-- Added `GET /package-source` to `micro-gateway` and a
-  `package-source.test.mjs` consumer test that verifies installed
-  `@echospecter/proxy-fetch` and installed `@echospecter/proxy-gateway`.
-- Updated `e2e/local-registry/AGENTS.md` with durable rules for Verdaccio
-  package ordering, focused install+test commands, and reset coverage.
-- Verified reset, local gateway publish, gateway install/start, and focused
-  package-source assertions. The publish path ran `prepublishOnly`, including
-  lint, typecheck, 46 Jest suites / 324 tests, and pack check.
-
-Next three steps reassessment:
-
-- Step 6 is ready. Its provider-focused consumer verify command should include
-  the same install-before-test wrapper because focused compose commands bypass
-  the default `micro-consumer` command.
-- Step 7 is ready after Step 6. It can now import installed gateway APIs from
-  the `micro-gateway` package because Step 5 established package installation
-  and the `/package-source` check.
-- Step 8 is ready after Step 7. Request-format tests should also use the
-  install-before-test focused command unless the full default consumer command
-  is intentionally used.
 
 ### 6. Implement Mock Provider Deterministic Modes - Completed
 
@@ -1138,7 +1106,7 @@ Verify:
 
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d verdaccio micro-provider
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern provider"
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern provider
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
 
@@ -1169,7 +1137,7 @@ Next three steps reassessment:
   Steps 6-8 because the binary request tests need `@echospecter/proxy-fetch`
   installed in `micro-consumer`.
 
-### 7. Implement Micro Gateway Deterministic Path
+### 7. Implement Micro Gateway Deterministic Path - Completed
 
 Purpose:
 
@@ -1200,6 +1168,39 @@ docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.m
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern deterministic"
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml down
 ```
+
+Progress:
+
+- Extended `micro-gateway/src/server.mjs` with `POST /fetch` handled by
+  `createNodeHttpHandler(createProxyGateway(...))` from the installed gateway
+  package.
+- Added one mock provider adapter and a fallback plan targeting
+  `micro-provider`.
+- Added an e2e `TargetTransportPort` that forwards deterministic execution to
+  `micro-provider` `POST /execute`.
+- Added `GET /observations` and `POST /observations/reset` to `micro-gateway`
+  for selected provider, route, plan, session, target, and release outcome
+  assertions.
+- Added `gateway-deterministic.test.mjs` using installed
+  `@echospecter/proxy-fetch` to call the real micro-gateway service URL.
+- Renamed provider scenario test titles so the focused `deterministic` filter
+  only runs the gateway deterministic path and does not race provider scenario
+  observation writes.
+- Updated `e2e/local-registry/AGENTS.md` with durable rules for focused test
+  pattern specificity and the micro-gateway deterministic path.
+- Verified the full publish/install/provider/gateway deterministic compose
+  flow. The publish path ran `prepublishOnly`, including lint, typecheck, 46
+  Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 8 is ready. It should extend the existing gateway transport/provider
+  request payload to capture target-visible text/JSON request body details,
+  not replace the deterministic `/fetch` path.
+- Step 9 is ready after Step 8. Binary request tests should build on the same
+  provider observation model and keep focused test names distinct from Step 8.
+- Step 10 should use the install-before-test focused compose command because
+  response-format tests depend on installed `@echospecter/proxy-fetch`.
 
 ### 8. Add Request Format Tests: JSON And Text Paths
 
@@ -1275,7 +1276,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern response-format
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern response-format"
 ```
 
 ### 11. Add Special Response And Invalid Service Response Tests
