@@ -1258,7 +1258,7 @@ Next three steps reassessment:
   install-before-test wrapper because it depends on installed
   `@echospecter/proxy-fetch`.
 
-### 9. Add Request Format Tests: Binary, Multipart, Stream, Base64
+### 9. Add Request Format Tests: Binary, Multipart, Stream, Base64 - Completed
 
 Red:
 
@@ -1283,6 +1283,35 @@ Verify:
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern request-binary"
 ```
+
+Progress:
+
+- Added `request-binary-formats.test.mjs` in the microservice consumer with
+  scenarios for `Uint8Array`, `ArrayBuffer`, `Blob`, `FormData` with file,
+  `ReadableStream` with `duplex: "half"`, JSON base64 fallback, consumed
+  `Request`, and unsupported `dispatcher`.
+- Reused micro-gateway and mock-provider observations to assert target body
+  summaries match at both boundaries.
+- Asserted raw byte preservation by reconstructing observed `base64` bodies,
+  including multipart payload bytes and JSON base64 fallback bytes.
+- Asserted preflight failures happen before the micro-gateway is called.
+- Updated `e2e/local-registry/AGENTS.md` with the durable binary/preflight
+  observation rule.
+- Verified the full publish/install/provider/gateway request-binary compose
+  flow. The publish path ran `prepublishOnly`, including lint, typecheck,
+  46 Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 10 is ready. Response-format tests should keep using deterministic
+  provider modes and should compare client-visible `Response` behavior rather
+  than expanding request body observations.
+- Step 11 is ready after Step 10. Split special valid response envelopes from
+  invalid service response fixtures so consumer-only invalid cases do not
+  depend on the gateway path.
+- Step 12 is ready after Step 11. Keep its focused verify command using the
+  install-before-test wrapper because it depends on installed
+  `@echospecter/proxy-fetch`.
 
 ### 10. Add Deterministic Response Format Tests
 
@@ -1355,7 +1384,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern client-boundary
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern client-boundary"
 ```
 
 ### 13. Add Fetch Metadata Tests
