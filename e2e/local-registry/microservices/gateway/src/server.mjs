@@ -52,6 +52,15 @@ const server = createServer((request, response) => {
   }
 
   if (request.method === 'POST' && request.url === '/fetch') {
+    if (request.headers['x-client-boundary-observe-service'] !== undefined) {
+      observations.push({
+        headers: readIncomingHeaders(request.headers),
+        method: request.method,
+        path: request.url,
+        type: 'service-request',
+      });
+    }
+
     gatewayHandler(request, response).catch((error) => {
       writeJson(response, 500, {
         error: 'gateway_handler_failed',
@@ -79,6 +88,19 @@ function writeJson(response, statusCode, body) {
     'content-type': 'application/json; charset=utf-8',
   });
   response.end(`${JSON.stringify(body)}\n`);
+}
+
+function readIncomingHeaders(headers) {
+  return Object.entries(headers).flatMap(([name, value]) => {
+    if (value === undefined) {
+      return [];
+    }
+    if (Array.isArray(value)) {
+      return value.map((entry) => [name, String(entry)]);
+    }
+
+    return [[name, String(value)]];
+  });
 }
 
 async function writePackageSource(response) {
@@ -115,6 +137,7 @@ function createProvider() {
     adapter: {
       acquire: async (input) => {
         observations.push({
+          context: input.context,
           planKind: PROXY_PLAN_KIND.FALLBACK,
           routeKind: PROXY_ROUTE_KIND.DIRECT,
           selectedProvider: input.providerInstanceId,
@@ -154,6 +177,7 @@ function createTransport() {
       const mode = readMode(input.target.url);
       observations.push({
         targetBody: describeTargetBody(input.target.body),
+        targetHeaders: input.target.headers,
         mode,
         targetMethod: input.target.method,
         targetUrl: input.target.url,

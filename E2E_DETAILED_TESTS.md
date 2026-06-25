@@ -1423,7 +1423,7 @@ Next three steps reassessment:
   before implementation because route, fallback, pipeline, and sticky-session
   scenarios may need separate focused test files.
 
-### 12. Add Client Boundary Tests
+### 12. Add Client Boundary Tests - Completed
 
 Red:
 
@@ -1448,6 +1448,37 @@ Verify:
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern client-boundary"
 ```
+
+Progress:
+
+- Added `client-boundary.test.mjs` in the microservice consumer.
+- Covered `PROXY_FETCH_SERVICE_URL` env fallback, explicit `serviceUrl`
+  override, service `apiKey`, target `authorization`, `defaultHeaders`,
+  request header override, and `defaultContext` / request context merge.
+- Extended micro-gateway observations with opt-in service request headers,
+  full provider acquire context, and target headers on transport execution.
+- Used micro-provider target header observations to prove target
+  `authorization` reaches the provider while service `apiKey` does not.
+- Restored the tracked microservice compose file and removed an invalid stale
+  smoke-script tail from the existing local-registry `base64.test.mjs` because
+  both blocked the Step 12 e2e/lint verification path.
+- Updated `e2e/local-registry/AGENTS.md` with the durable client-boundary
+  observation rule.
+- Verified the full publish/install/provider/gateway client-boundary compose
+  path. The publish path ran `prepublishOnly`, including lint, typecheck,
+  46 Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 13 is ready. It can reuse the `targetHeaders` and provider-acquire
+  context observations added here, and should add only the metadata fields that
+  are not already observable.
+- Step 14 is too broad to implement as one large test. Before implementation,
+  split it into focused route selection, pipeline requirements, provider
+  ranking, and fallback scenarios while keeping one `gateway-policy` focused
+  test pattern.
+- Step 15 is ready after Step 14, but should keep sticky-session observations
+  correlated by request id so parallel assertions do not depend on ordering.
 
 ### 13. Add Fetch Metadata Tests
 
@@ -1489,7 +1520,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern gateway-policy
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern gateway-policy"
 ```
 
 ### 15. Add Sticky Session And Isolation Tests
@@ -1509,7 +1540,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern sticky-session
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern sticky-session"
 ```
 
 ### 16. Add Retry, Fallback, Replayability, And Buffering Tests
