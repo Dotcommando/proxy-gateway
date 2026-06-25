@@ -37,6 +37,7 @@ Rules:
 - The mock-provider deterministic API is `POST /execute` plus `GET /observations` and `POST /observations/reset`; deterministic tests should use it before adding live public endpoint coverage.
 - Focused Node test patterns must be specific enough to avoid running unrelated scenario files in parallel.
 - The micro-gateway deterministic path is `POST /fetch` through `createNodeHttpHandler(createProxyGateway(...))`; keep health, package-source, and observations endpoints as thin side endpoints around that gateway path.
+- Target body observations should use the shared summary shape `{ kind, byteLength, sha256 }`, adding `text` or `base64` only when needed for format-specific assertions.
 ```
 
 Consumer test coverage should include:

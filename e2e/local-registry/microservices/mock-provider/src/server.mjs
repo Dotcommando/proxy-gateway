@@ -72,6 +72,11 @@ async function execute(request, response) {
     mode,
     observedAt,
     path: request.url,
+    targetBody: body.target?.body ?? null,
+    targetContentType: readHeader(body.target?.headers, 'content-type'),
+    targetHeaders: body.target?.headers ?? [],
+    targetMethod: body.target?.method ?? null,
+    targetUrl: body.target?.url ?? null,
   });
 
   switch (mode) {
@@ -168,4 +173,20 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function readHeader(headers, name) {
+  if (!Array.isArray(headers)) {
+    return null;
+  }
+
+  const normalizedName = name.toLowerCase();
+  const header = headers.find(
+    (entry) =>
+      Array.isArray(entry)
+      && entry.length >= 2
+      && String(entry[0]).toLowerCase() === normalizedName,
+  );
+
+  return header === undefined ? null : String(header[1]);
 }

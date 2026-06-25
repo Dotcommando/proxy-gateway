@@ -1202,7 +1202,7 @@ Next three steps reassessment:
 - Step 10 should use the install-before-test focused compose command because
   response-format tests depend on installed `@echospecter/proxy-fetch`.
 
-### 8. Add Request Format Tests: JSON And Text Paths
+### 8. Add Request Format Tests: JSON And Text Paths - Completed
 
 Red:
 
@@ -1226,6 +1226,37 @@ Verify:
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern request-json"
 ```
+
+Progress:
+
+- Added `request-body-formats.test.mjs` with focused `request-json` scenarios
+  for no body, string body, JSON string body, `URLSearchParams`, and existing
+  `Request` text body.
+- Extended `micro-gateway` transport observations and provider payloads with a
+  target body summary containing `kind`, `byteLength`, and `sha256`.
+- Extended `micro-provider` observations to record target method, URL, headers,
+  content type, and target body summary.
+- Asserted gateway transport and provider observations agree on the target body
+  summary for each request.
+- Verified that existing `Request` object text body reaches the provider intact
+  as bytes, preserving byte length and hash.
+- Updated `e2e/local-registry/AGENTS.md` with the durable target body
+  observation shape rule.
+- Verified the full publish/install/provider/gateway request-json compose flow.
+  The publish path ran `prepublishOnly`, including lint, typecheck, 46 Jest
+  suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 9 is ready. Binary, multipart, stream, and base64 scenarios should reuse
+  the `{ kind, byteLength, sha256 }` body summary and add `base64` assertions
+  only where raw bytes need to be reconstructed.
+- Step 10 is ready after Step 9. Response-format tests can reuse the existing
+  mock-provider deterministic modes and should not change the target request
+  observation contract introduced here.
+- Step 11 is ready after Step 10. Its focused verify command should use the
+  install-before-test wrapper because it depends on installed
+  `@echospecter/proxy-fetch`.
 
 ### 9. Add Request Format Tests: Binary, Multipart, Stream, Base64
 
@@ -1298,7 +1329,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern special-response
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern special-response"
 ```
 
 ### 12. Add Client Boundary Tests

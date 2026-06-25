@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 
 import {
@@ -152,6 +153,7 @@ function createTransport() {
     execute: async (input) => {
       const mode = readMode(input.target.url);
       observations.push({
+        targetBody: describeTargetBody(input.target.body),
         mode,
         targetMethod: input.target.method,
         targetUrl: input.target.url,
@@ -162,7 +164,7 @@ function createTransport() {
         body: JSON.stringify({
           mode,
           target: {
-            bodyKind: input.target.body.kind,
+            body: serializeTargetBody(input.target.body),
             headers: input.target.headers,
             method: input.target.method,
             url: input.target.url,
@@ -192,6 +194,53 @@ function createTransport() {
 
 function readMode(targetUrl) {
   return new URL(targetUrl).searchParams.get('mode') ?? 'text';
+}
+
+function serializeTargetBody(body) {
+  if (body.kind === 'none') {
+    return bodySummary('none', new Uint8Array(), {});
+  }
+
+  if (body.kind === 'text') {
+    const bytes = new TextEncoder().encode(body.text);
+
+    return bodySummary('text', bytes, {
+      text: body.text,
+    });
+  }
+
+  if (body.kind === 'bytes') {
+    return bodySummary('bytes', body.bytes, {
+      base64: Buffer.from(body.bytes).toString('base64'),
+    });
+  }
+
+  return {
+    kind: 'stream',
+    replayability: body.replayability,
+    sizeBytes: body.sizeBytes ?? null,
+  };
+}
+
+function describeTargetBody(body) {
+  if (body.kind === 'stream') {
+    return {
+      kind: body.kind,
+      replayability: body.replayability,
+      sizeBytes: body.sizeBytes ?? null,
+    };
+  }
+
+  return serializeTargetBody(body);
+}
+
+function bodySummary(kind, bytes, extra) {
+  return {
+    byteLength: bytes.byteLength,
+    kind,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    ...extra,
+  };
 }
 
 function createGatewayBody(response, bytes) {
