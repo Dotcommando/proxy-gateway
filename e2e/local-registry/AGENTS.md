@@ -39,6 +39,7 @@ Rules:
 - The micro-gateway deterministic path is `POST /fetch` through `createNodeHttpHandler(createProxyGateway(...))`; keep health, package-source, and observations endpoints as thin side endpoints around that gateway path.
 - Target body observations should use the shared summary shape `{ kind, byteLength, sha256 }`, adding `text` or `base64` only when needed for format-specific assertions.
 - Binary request tests should assert byte preservation by reconstructing observed `base64` bodies, and preflight rejection tests must assert the micro-gateway observations stay empty.
+- Response format tests should assert native client `Response` behavior and may capture service response `content-type` through a `fetchImpl` wrapper when distinguishing multipart from JSON base64 service transport.
 ```
 
 Consumer test coverage should include:

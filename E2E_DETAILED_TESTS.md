@@ -1313,7 +1313,7 @@ Next three steps reassessment:
   install-before-test wrapper because it depends on installed
   `@echospecter/proxy-fetch`.
 
-### 10. Add Deterministic Response Format Tests
+### 10. Add Deterministic Response Format Tests - Completed
 
 Red:
 
@@ -1338,6 +1338,38 @@ Verify:
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern response-format"
 ```
+
+Progress:
+
+- Added `response-formats.test.mjs` in the microservice consumer.
+- Covered deterministic JSON, plain text, binary, multipart service response,
+  JSON base64 service response fallback, null-body `204`/`205`/`304`, and
+  target `404`/`500` responses through `@echospecter/proxy-fetch`.
+- Asserted native `Response` metadata and behavior: `url`, `redirected`,
+  `type`, `status`, `statusText`, headers, `clone()`, and `bodyUsed`.
+- Captured service response `content-type` through a scoped `fetchImpl`
+  wrapper to prove default binary responses use multipart service transport and
+  JSON-only service `Accept` produces JSON base64 fallback.
+- Confirmed target HTTP `404` and `500` remain normal client `Response`
+  objects while gateway release observations classify them as
+  `target-http-error`.
+- Updated `e2e/local-registry/AGENTS.md` with the durable response-format
+  service transport observation rule.
+- Verified the full publish/install/provider/gateway response-format compose
+  path. The publish path ran `prepublishOnly`, including lint, typecheck,
+  46 Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 11 is ready, but should stay split into two focused groups: valid
+  special response envelopes through a deterministic fixture and invalid
+  service response fixtures through consumer-only service responses.
+- Step 12 is ready after Step 11. It can reuse the observation pattern from
+  Step 10, but should extend observations for service headers/context and
+  target headers only where assertions require them.
+- Step 13 is ready after Step 12. Keep Fetch metadata assertions limited to
+  metadata observable through gateway/provider observations and avoid live
+  endpoint dependencies.
 
 ### 11. Add Special Response And Invalid Service Response Tests
 
