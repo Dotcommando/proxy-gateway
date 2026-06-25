@@ -1371,7 +1371,7 @@ Next three steps reassessment:
   metadata observable through gateway/provider observations and avoid live
   endpoint dependencies.
 
-### 11. Add Special Response And Invalid Service Response Tests
+### 11. Add Special Response And Invalid Service Response Tests - Completed
 
 Red:
 
@@ -1392,6 +1392,36 @@ Verify:
 ```sh
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern special-response"
 ```
+
+Progress:
+
+- Added deterministic `special-error`, `special-opaque`, and
+  `special-opaqueredirect` modes to the micro-gateway transport fixture.
+- Added `special-response.test.mjs` in the microservice consumer.
+- Verified valid `error`, `opaque`, and `opaqueredirect` envelopes through the
+  real micro-gateway path and `@echospecter/proxy-fetch` reconstruction.
+- Added consumer-only invalid service response fixtures for invalid JSON,
+  unsupported wire version, unsupported response body kind, impossible special
+  response shape, and multipart response without metadata.
+- Asserted invalid service response fixtures reject with
+  `InvalidServiceResponseError` and do not call the micro-gateway.
+- Updated `e2e/local-registry/AGENTS.md` with the durable special/invalid
+  response testing rule.
+- Verified the full publish/install/provider/gateway special-response compose
+  path. The publish path ran `prepublishOnly`, including lint, typecheck,
+  46 Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 12 is ready. Keep it focused on client boundary propagation by extending
+  observations for service headers/context and target headers, without adding
+  new provider behavior.
+- Step 13 is ready after Step 12. It should use the same install-before-test
+  verify wrapper and keep assertions to metadata observable at gateway/provider
+  boundaries.
+- Step 14 is ready after Step 13, but should be reviewed for decomposition
+  before implementation because route, fallback, pipeline, and sticky-session
+  scenarios may need separate focused test files.
 
 ### 12. Add Client Boundary Tests
 
@@ -1435,7 +1465,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern fetch-metadata
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern fetch-metadata"
 ```
 
 ### 14. Add Declarative Route And Pipeline Tests

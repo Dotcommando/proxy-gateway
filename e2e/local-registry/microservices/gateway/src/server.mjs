@@ -160,6 +160,12 @@ function createTransport() {
         type: 'transport-execute',
       });
 
+      const specialResponse = createSpecialTargetResponse(mode);
+
+      if (specialResponse !== undefined) {
+        return specialResponse;
+      }
+
       const providerResponse = await fetch(`${providerBaseUrl}/execute`, {
         body: JSON.stringify({
           mode,
@@ -194,6 +200,29 @@ function createTransport() {
 
 function readMode(targetUrl) {
   return new URL(targetUrl).searchParams.get('mode') ?? 'text';
+}
+
+function createSpecialTargetResponse(mode) {
+  if (
+    mode !== 'special-error'
+    && mode !== 'special-opaque'
+    && mode !== 'special-opaqueredirect'
+  ) {
+    return undefined;
+  }
+
+  return {
+    body: {
+      kind: 'none',
+      replayability: 'replayable',
+    },
+    headers: [],
+    redirected: false,
+    status: 0,
+    statusText: '',
+    type: mode.replace('special-', ''),
+    url: '',
+  };
 }
 
 function serializeTargetBody(body) {

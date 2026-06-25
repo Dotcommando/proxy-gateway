@@ -40,6 +40,7 @@ Rules:
 - Target body observations should use the shared summary shape `{ kind, byteLength, sha256 }`, adding `text` or `base64` only when needed for format-specific assertions.
 - Binary request tests should assert byte preservation by reconstructing observed `base64` bodies, and preflight rejection tests must assert the micro-gateway observations stay empty.
 - Response format tests should assert native client `Response` behavior and may capture service response `content-type` through a `fetchImpl` wrapper when distinguishing multipart from JSON base64 service transport.
+- Special response tests should send valid special envelopes through deterministic micro-gateway modes; invalid service response fixtures should stay consumer-only and assert gateway observations remain empty.
 ```
 
 Consumer test coverage should include:
