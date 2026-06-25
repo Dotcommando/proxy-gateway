@@ -1480,7 +1480,7 @@ Next three steps reassessment:
 - Step 15 is ready after Step 14, but should keep sticky-session observations
   correlated by request id so parallel assertions do not depend on ordering.
 
-### 13. Add Fetch Metadata Tests
+### 13. Add Fetch Metadata Tests - Completed
 
 Red:
 
@@ -1499,23 +1499,55 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern fetch-metadata"
 ```
 
+Progress:
+
+- Added `fetch-metadata.test.mjs` in the microservice consumer.
+- Extended micro-gateway transport observations and mock-provider observations
+  with normalized `targetFetch` metadata.
+- Covered `redirect`, `referrer`, `referrerPolicy`, `integrity`,
+  `keepalive`, `duplex`, `cache`, `credentials`, and `mode` through
+  `@echospecter/proxy-fetch`.
+- Added a controlled `redirect-safe` scenario that records a
+  `final-url-check` observation from the target transport fixture.
+- Updated `e2e/local-registry/AGENTS.md` with the durable fetch metadata
+  observation rule.
+- Verified the full publish/install/provider/gateway fetch-metadata compose
+  path. The publish path ran `prepublishOnly`, including lint, typecheck,
+  46 Jest suites / 324 tests, and pack check.
+
+Next three steps reassessment:
+
+- Step 14 has been decomposed below and is ready to start with route/default
+  route scenarios before adding pipeline and ranking assertions.
+- Step 15 is ready after Step 14. It should reuse request-id-correlated
+  observations rather than asserting on parallel execution order.
+- Step 16 is ready after Step 15, but should be split before implementation
+  into provider fallback/replayability scenarios and buffering-limit
+  scenarios.
+
 ### 14. Add Declarative Route And Pipeline Tests
 
 Red:
 
-- Add failing scenarios for:
+- Add failing route selection scenarios for:
   - default route;
   - route match by host;
-  - route priority and exclude;
+  - route priority and exclude.
+- Add failing pipeline requirement scenarios for:
   - pipeline `requirements.geo`;
+  - pipeline-selected provider requirements.
+- Add failing provider selection scenarios for:
   - provider tag filtering;
   - provider priority ranking;
   - `plan.fallback`.
 
 Green:
 
-- Extend micro-gateway config to use routes and pipelines.
-- Assert gateway observations show selected route/pipeline/provider.
+- Extend micro-gateway config to use routes and pipelines in small fixtures.
+- Assert gateway observations show selected route, pipeline, provider, and
+  fallback attempt sequence.
+- Keep focused test names under the `gateway-policy` pattern while splitting
+  implementation into route, pipeline, and provider/fallback sections.
 
 Verify:
 
@@ -1563,7 +1595,7 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern retry-fallback
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern retry-fallback"
 ```
 
 ### 17. Add Timeout And Abort Tests

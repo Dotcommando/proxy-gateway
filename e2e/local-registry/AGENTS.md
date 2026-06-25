@@ -42,6 +42,7 @@ Rules:
 - Response format tests should assert native client `Response` behavior and may capture service response `content-type` through a `fetchImpl` wrapper when distinguishing multipart from JSON base64 service transport.
 - Special response tests should send valid special envelopes through deterministic micro-gateway modes; invalid service response fixtures should stay consumer-only and assert gateway observations remain empty.
 - Client boundary tests may opt into service-header observations with a dedicated service request header; API keys must be asserted on service headers and absent from target headers.
+- Fetch metadata tests should assert normalized `targetFetch` at both micro-gateway and mock-provider boundaries, and should use explicit `final-url-check` observations for redirect/final URL guard coverage.
 ```
 
 Consumer test coverage should include:

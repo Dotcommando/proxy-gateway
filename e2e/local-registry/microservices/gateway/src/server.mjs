@@ -177,6 +177,7 @@ function createTransport() {
       const mode = readMode(input.target.url);
       observations.push({
         targetBody: describeTargetBody(input.target.body),
+        targetFetch: input.target.fetch,
         targetHeaders: input.target.headers,
         mode,
         targetMethod: input.target.method,
@@ -195,6 +196,7 @@ function createTransport() {
           mode,
           target: {
             body: serializeTargetBody(input.target.body),
+            fetch: input.target.fetch,
             headers: input.target.headers,
             method: input.target.method,
             url: input.target.url,
@@ -208,6 +210,17 @@ function createTransport() {
         signal: input.signal,
       });
       const bytes = new Uint8Array(await providerResponse.arrayBuffer());
+      const finalUrlCheck = checkFinalUrl(input, providerResponse);
+
+      if (finalUrlCheck !== undefined) {
+        observations.push({
+          baseUrl: input.target.url,
+          location: providerResponse.headers.get('location'),
+          mode,
+          result: finalUrlCheck,
+          type: 'final-url-check',
+        });
+      }
 
       return {
         body: createGatewayBody(providerResponse, bytes),
@@ -224,6 +237,19 @@ function createTransport() {
 
 function readMode(targetUrl) {
   return new URL(targetUrl).searchParams.get('mode') ?? 'text';
+}
+
+function checkFinalUrl(input, response) {
+  const location = response.headers.get('location');
+
+  if (location === null || input.finalUrlGuard === undefined) {
+    return undefined;
+  }
+
+  return input.finalUrlGuard.check({
+    baseUrl: input.target.url,
+    url: location,
+  });
 }
 
 function createSpecialTargetResponse(mode) {

@@ -74,6 +74,7 @@ async function execute(request, response) {
     path: request.url,
     targetBody: body.target?.body ?? null,
     targetContentType: readHeader(body.target?.headers, 'content-type'),
+    targetFetch: body.target?.fetch ?? {},
     targetHeaders: body.target?.headers ?? [],
     targetMethod: body.target?.method ?? null,
     targetUrl: body.target?.url ?? null,
