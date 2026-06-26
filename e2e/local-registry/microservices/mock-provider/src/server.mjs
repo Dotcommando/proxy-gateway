@@ -84,6 +84,9 @@ async function execute(request, response) {
     case 'text':
       writeText(response, 200, 'deterministic text response');
       return;
+    case 'gateway-policy-fallback':
+      writeText(response, 200, 'gateway policy fallback response');
+      return;
     case 'json':
       writeJson(response, 200, {
         mode,

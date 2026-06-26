@@ -1517,15 +1517,14 @@ Progress:
 
 Next three steps reassessment:
 
-- Step 14 has been decomposed below and is ready to start with route/default
-  route scenarios before adding pipeline and ranking assertions.
+- Step 14 is completed below and now covers route/default-route, pipeline,
+  provider ranking, and `plan.fallback` assertions.
 - Step 15 is ready after Step 14. It should reuse request-id-correlated
   observations rather than asserting on parallel execution order.
-- Step 16 is ready after Step 15, but should be split before implementation
-  into provider fallback/replayability scenarios and buffering-limit
-  scenarios.
+- The old Step 16 scope has been split into retry/fallback/replayability and
+  buffering-limit steps.
 
-### 14. Add Declarative Route And Pipeline Tests
+### 14. Add Declarative Route And Pipeline Tests - Completed
 
 Red:
 
@@ -1552,8 +1551,34 @@ Green:
 Verify:
 
 ```sh
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern gateway-policy"
 ```
+
+Progress:
+
+- Added `gateway-policy.test.mjs` in the microservice consumer with route,
+  default-route, route priority, route exclude, pipeline geo/tag/priority, and
+  `plan.fallback` assertions.
+- Extended the micro-gateway e2e config to use `defaultRoute`, `routes`,
+  `pipelines`, multiple provider instances, provider capabilities, provider
+  tags, provider priority, and deterministic fallback failure.
+- Added e2e-only gateway observations for selected provider, selected route,
+  selected pipeline, requirements, route provider, and fallback attempt order.
+- Added a deterministic mock-provider response mode for the fallback success
+  leg.
+- Verified the focused `gateway-policy` compose path after starting
+  `micro-provider` and `micro-gateway`.
+
+Next three steps reassessment:
+
+- Step 15 is still the right next step, but it must first add request-id or
+  correlation metadata to observations before asserting isolation under
+  parallel requests.
+- Step 16 has been narrowed to retry/fallback/replayability because basic
+  provider `plan.fallback` is now covered by Step 14.
+- Step 17 has been split out as buffering-limit coverage so request/response
+  byte limits do not get mixed with retry policy behavior.
 
 ### 15. Add Sticky Session And Isolation Tests
 
@@ -1561,6 +1586,8 @@ Red:
 
 - Add a parallel request batch with mixed targets, tenants, flow keys, and
   sticky-session requirements.
+- Add a failing assertion that gateway/provider observations can be correlated
+  by request id or explicit e2e correlation metadata.
 
 Green:
 
@@ -1572,33 +1599,59 @@ Green:
 Verify:
 
 ```sh
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern sticky-session"
 ```
 
-### 16. Add Retry, Fallback, Replayability, And Buffering Tests
+### 16. Add Retry, Fallback, And Replayability Tests
 
 Red:
 
 - Add failing scenarios for:
-  - fallback to secondary provider after primary provider failure;
-  - replayable body retry/fallback;
+  - replayable body fallback after primary provider failure;
   - non-replayable body retry prevention;
-  - request buffering limit;
-  - response buffering limit.
+  - unsafe method retry prevention unless policy explicitly allows it;
+  - fallback attempt sequence with body preservation.
 
 Green:
 
-- Add a secondary mock provider instance.
-- Add deterministic provider failure modes.
-- Configure small buffering limits for limit scenarios.
+- Reuse the Step 14 secondary mock provider instances.
+- Add deterministic provider failure modes that fail before target execution
+  for the first attempt and succeed on the second attempt.
+- Assert gateway release outcomes and provider observations for replayable and
+  non-replayable bodies.
 
 Verify:
 
 ```sh
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern retry-fallback"
 ```
 
-### 17. Add Timeout And Abort Tests
+### 17. Add Buffering Limit Tests
+
+Red:
+
+- Add failing scenarios for:
+  - request buffering limit before provider execution;
+  - response buffering limit while building the service response;
+  - retry disabled when the request body cannot be replayed safely after
+    buffering decisions.
+
+Green:
+
+- Configure small e2e-only buffering limits in a narrow gateway fixture path.
+- Add deterministic request and response body modes that exceed those limits.
+- Assert stable service errors and provider observation counts.
+
+Verify:
+
+```sh
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern buffering-limit"
+```
+
+### 18. Add Timeout And Abort Tests
 
 Red:
 
@@ -1617,10 +1670,11 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern timeout-abort
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern timeout-abort"
 ```
 
-### 18. Add Error Boundary, Target Access, And Redaction Tests
+### 19. Add Error Boundary, Target Access, And Redaction Tests
 
 Red:
 
@@ -1641,10 +1695,11 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern error-redaction
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern error-redaction"
 ```
 
-### 19. Add Live Public Endpoint Tests
+### 20. Add Live Public Endpoint Tests
 
 Red:
 
@@ -1660,10 +1715,11 @@ Green:
 Verify:
 
 ```sh
-docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer npm run test:e2e -- --test-name-pattern live-endpoints
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
+docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern live-endpoints"
 ```
 
-### 20. Add One-Command Runner And Documentation
+### 21. Add One-Command Runner And Documentation
 
 Red:
 

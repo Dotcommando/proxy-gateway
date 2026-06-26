@@ -33,6 +33,7 @@ Rules:
 - The microservice consumer should use Node test discovery in its `test:e2e` script so npm can append focused filters such as `--test-name-pattern health`.
 - Verdaccio config must list the `@echospecter/proxy-fetch` npmjs uplink rule before the broader local-only `@echospecter/*` package rule.
 - Focused `micro-consumer` compose runs that require installed packages should execute `npm install --package-lock=false --no-audit --no-fund` before `npm run test:e2e -- --test-name-pattern ...`.
+- Focused `micro-consumer` compose runs that exercise the gateway data path should start `micro-provider` and `micro-gateway` first; the full runner owns clean setup, but focused commands may assume those services are already running.
 - `reset-registry.sh` must reset both the existing local-registry compose lab and the microservice compose lab volumes.
 - The mock-provider deterministic API is `POST /execute` plus `GET /observations` and `POST /observations/reset`; deterministic tests should use it before adding live public endpoint coverage.
 - Focused Node test patterns must be specific enough to avoid running unrelated scenario files in parallel.
@@ -43,6 +44,7 @@ Rules:
 - Special response tests should send valid special envelopes through deterministic micro-gateway modes; invalid service response fixtures should stay consumer-only and assert gateway observations remain empty.
 - Client boundary tests may opt into service-header observations with a dedicated service request header; API keys must be asserted on service headers and absent from target headers.
 - Fetch metadata tests should assert normalized `targetFetch` at both micro-gateway and mock-provider boundaries, and should use explicit `final-url-check` observations for redirect/final URL guard coverage.
+- Gateway policy tests should use declarative `defaultRoute`, `routes`, and `pipelines` config and assert selected route, pipeline, provider, requirements, and fallback sequence through e2e observations instead of package internals.
 ```
 
 Consumer test coverage should include:

@@ -5,8 +5,13 @@ import { createServer } from 'node:http';
 import {
   createNodeHttpHandler,
   createProxyGateway,
+  PIPELINE_STEP_TYPE,
+  PROXY_GEO_STRICTNESS,
   PROXY_PLAN_KIND,
+  PROXY_PROVIDER_GEO_MODE,
   PROXY_ROUTE_KIND,
+  RETRY_CONDITION,
+  STRING_MATCHER_KIND,
 } from '@echospecter/proxy-gateway';
 
 const port = Number.parseInt(process.env.MICRO_GATEWAY_PORT ?? '8080', 10);
@@ -119,26 +124,202 @@ async function writePackageSource(response) {
 
 function createGateway() {
   return createProxyGateway({
-    plan: {
-      attempts: [
-        {
-          provider: providerInstanceId,
-        },
-      ],
-      kind: PROXY_PLAN_KIND.FALLBACK,
+    defaultRoute: {
+      id: 'gateway-policy-default',
+      plan: fallbackPlan(providerInstanceId, {
+        policyRouteId: 'gateway-policy-default',
+      }),
     },
-    providers: [createProvider()],
+    pipelines: [
+      {
+        id: 'gateway-policy-gb',
+        plan: [
+          {
+            args: {
+              attempts: [
+                {
+                  metadata: {
+                    pipelineId: 'gateway-policy-gb',
+                  },
+                },
+              ],
+            },
+            use: PIPELINE_STEP_TYPE.PLAN_FALLBACK,
+          },
+        ],
+        rank: [
+          {
+            use: PIPELINE_STEP_TYPE.PROVIDERS_PRIORITY,
+          },
+        ],
+        require: [
+          {
+            args: {
+              country: 'GB',
+              strictness: PROXY_GEO_STRICTNESS.REQUIRED,
+            },
+            use: PIPELINE_STEP_TYPE.REQUIREMENTS_GEO,
+          },
+        ],
+        select: [
+          {
+            args: {
+              tags: ['residential', 'gb'],
+            },
+            use: PIPELINE_STEP_TYPE.PROVIDERS_TAGS,
+          },
+        ],
+        when: {
+          host: 'pipeline-gb.policy.example.com',
+        },
+      },
+      {
+        id: 'gateway-policy-fallback',
+        plan: [
+          {
+            args: {
+              attempts: [
+                {
+                  metadata: {
+                    pipelineId: 'gateway-policy-fallback',
+                    policyAttemptId: 'primary',
+                  },
+                  provider: 'fallback-primary-provider',
+                  retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+                },
+                {
+                  metadata: {
+                    pipelineId: 'gateway-policy-fallback',
+                    policyAttemptId: 'secondary',
+                  },
+                  provider: 'fallback-secondary-provider',
+                },
+              ],
+            },
+            use: PIPELINE_STEP_TYPE.PLAN_FALLBACK,
+          },
+        ],
+        select: [
+          {
+            args: {
+              providerInstanceIds: [
+                'fallback-primary-provider',
+                'fallback-secondary-provider',
+              ],
+            },
+            use: PIPELINE_STEP_TYPE.PROVIDERS_INCLUDE,
+          },
+        ],
+        when: {
+          host: 'fallback.policy.example.com',
+        },
+      },
+    ],
+    providers: createProviders(),
+    routes: [
+      {
+        id: 'gateway-policy-host',
+        match: {
+          host: 'host.policy.example.com',
+        },
+        plan: fallbackPlan('route-host-provider', {
+          policyRouteId: 'gateway-policy-host',
+        }),
+      },
+      {
+        id: 'gateway-policy-priority-low',
+        match: {
+          host: 'priority.policy.example.com',
+        },
+        plan: fallbackPlan('route-low-provider', {
+          policyRouteId: 'gateway-policy-priority-low',
+        }),
+        priority: 1,
+      },
+      {
+        id: 'gateway-policy-priority-high',
+        match: {
+          host: 'priority.policy.example.com',
+        },
+        plan: fallbackPlan('route-priority-provider', {
+          policyRouteId: 'gateway-policy-priority-high',
+        }),
+        priority: 10,
+      },
+      {
+        exclude: {
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/admin',
+          },
+        },
+        id: 'gateway-policy-public',
+        match: {
+          host: 'exclude.policy.example.com',
+        },
+        plan: fallbackPlan('route-public-provider', {
+          policyRouteId: 'gateway-policy-public',
+        }),
+        priority: 10,
+      },
+      {
+        id: 'gateway-policy-exclude-fallback',
+        match: {
+          host: 'exclude.policy.example.com',
+        },
+        plan: fallbackPlan('route-exclude-provider', {
+          policyRouteId: 'gateway-policy-exclude-fallback',
+        }),
+        priority: 1,
+      },
+    ],
     transport: createTransport(),
   });
 }
 
-function createProvider() {
+function createProviders() {
+  return [
+    createProvider(providerInstanceId),
+    createProvider('route-host-provider'),
+    createProvider('route-low-provider'),
+    createProvider('route-priority-provider'),
+    createProvider('route-public-provider'),
+    createProvider('route-exclude-provider'),
+    createProvider('gb-low-provider', {
+      capabilities: gbCapabilities(),
+      priority: 1,
+      tags: ['residential', 'gb'],
+    }),
+    createProvider('gb-high-provider', {
+      capabilities: gbCapabilities(),
+      priority: 10,
+      tags: ['residential', 'gb'],
+    }),
+    createProvider('us-high-provider', {
+      capabilities: {
+        geo: {
+          countries: ['US'],
+          mode: PROXY_PROVIDER_GEO_MODE.GUARANTEED,
+        },
+      },
+      priority: 100,
+      tags: ['residential', 'us'],
+    }),
+    createProvider('fallback-primary-provider'),
+    createProvider('fallback-secondary-provider'),
+  ];
+}
+
+function createProvider(id, options = {}) {
   return {
     adapter: {
       acquire: async (input) => {
         observations.push({
+          attempt: input.attempt,
           context: input.context,
           planKind: PROXY_PLAN_KIND.FALLBACK,
+          ...policyObservationForProvider(input.providerInstanceId),
+          requirements: input.requirements,
           routeKind: PROXY_ROUTE_KIND.DIRECT,
           selectedProvider: input.providerInstanceId,
           session: {
@@ -154,10 +335,11 @@ function createProvider() {
           providerKind,
           route: {
             kind: PROXY_ROUTE_KIND.DIRECT,
+            providerInstanceId: input.providerInstanceId,
           },
         };
       },
-      getCapabilities: () => ({}),
+      getCapabilities: () => options.capabilities ?? {},
       kind: providerKind,
       release: async (lease, result) => {
         observations.push({
@@ -167,8 +349,78 @@ function createProvider() {
         });
       },
     },
-    id: providerInstanceId,
+    id,
+    ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
+    ...(options.priority === undefined ? {} : { priority: options.priority }),
+    ...(options.tags === undefined ? {} : { tags: options.tags }),
   };
+}
+
+function fallbackPlan(provider, metadata = {}) {
+  return {
+    attempts: [
+      {
+        metadata,
+        provider,
+      },
+    ],
+    kind: PROXY_PLAN_KIND.FALLBACK,
+  };
+}
+
+function gbCapabilities() {
+  return {
+    geo: {
+      countries: ['GB'],
+      mode: PROXY_PROVIDER_GEO_MODE.GUARANTEED,
+    },
+  };
+}
+
+function policyObservationForProvider(id) {
+  switch (id) {
+    case providerInstanceId:
+      return {
+        policyRouteId: 'gateway-policy-default',
+      };
+    case 'route-host-provider':
+      return {
+        policyRouteId: 'gateway-policy-host',
+      };
+    case 'route-low-provider':
+      return {
+        policyRouteId: 'gateway-policy-priority-low',
+      };
+    case 'route-priority-provider':
+      return {
+        policyRouteId: 'gateway-policy-priority-high',
+      };
+    case 'route-public-provider':
+      return {
+        policyRouteId: 'gateway-policy-public',
+      };
+    case 'route-exclude-provider':
+      return {
+        policyRouteId: 'gateway-policy-exclude-fallback',
+      };
+    case 'gb-low-provider':
+    case 'gb-high-provider':
+      return {
+        policyPipelineId: 'gateway-policy-gb',
+      };
+    case 'fallback-primary-provider':
+      return {
+        policyAttemptId: 'primary',
+        policyPipelineId: 'gateway-policy-fallback',
+      };
+    case 'fallback-secondary-provider':
+      return {
+        policyAttemptId: 'secondary',
+        policyPipelineId: 'gateway-policy-fallback',
+      };
+    default:
+      return {};
+  }
 }
 
 function createTransport() {
@@ -176,6 +428,7 @@ function createTransport() {
     execute: async (input) => {
       const mode = readMode(input.target.url);
       observations.push({
+        routeProvider: input.route.providerInstanceId ?? null,
         targetBody: describeTargetBody(input.target.body),
         targetFetch: input.target.fetch,
         targetHeaders: input.target.headers,
@@ -184,6 +437,13 @@ function createTransport() {
         targetUrl: input.target.url,
         type: 'transport-execute',
       });
+
+      if (
+        mode === 'gateway-policy-fallback'
+        && input.route.providerInstanceId === 'fallback-primary-provider'
+      ) {
+        throw new Error('gateway policy fallback primary failure');
+      }
 
       const specialResponse = createSpecialTargetResponse(mode);
 
