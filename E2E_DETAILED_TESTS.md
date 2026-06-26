@@ -1572,15 +1572,14 @@ Progress:
 
 Next three steps reassessment:
 
-- Step 15 is still the right next step, but it must first add request-id or
-  correlation metadata to observations before asserting isolation under
-  parallel requests.
+- Step 15 is completed below and added request-id correlation before asserting
+  isolation under parallel requests.
 - Step 16 has been narrowed to retry/fallback/replayability because basic
   provider `plan.fallback` is now covered by Step 14.
 - Step 17 has been split out as buffering-limit coverage so request/response
   byte limits do not get mixed with retry policy behavior.
 
-### 15. Add Sticky Session And Isolation Tests
+### 15. Add Sticky Session And Isolation Tests - Completed
 
 Red:
 
@@ -1595,6 +1594,10 @@ Green:
 - Add repeated request scenarios proving sticky reuse.
 - Correlate observations by request id.
 - Avoid shared mutable test assertions that depend on execution order.
+- In this installed `@echospecter/proxy-fetch` microservice path, assert
+  isolation through serialized `flowKey` and target host. `tenantId` and
+  `routeKey` are gateway context concepts, but they are not carried through
+  the current proxy-fetch client boundary in this e2e lab.
 
 Verify:
 
@@ -1602,6 +1605,29 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern sticky-session"
 ```
+
+Progress:
+
+- Added `sticky-session.test.mjs` in the microservice consumer.
+- Configured the micro-gateway with `createMemoryProxySessionStore()`.
+- Added sticky write/read pipelines: `/write` stores `sticky-provider-a`, and
+  `/read` would prefer higher-priority `sticky-provider-b` unless the session
+  store pins the request back to `sticky-provider-a`.
+- Added gateway and mock-provider `requestId` observations so parallel
+  requests can be correlated without relying on event order.
+- Covered repeated sticky reuse and a parallel isolation batch across
+  serialized `flowKey` and target host.
+- Verified the focused `sticky-session` compose path after starting
+  `micro-provider` and `micro-gateway`.
+
+Next three steps reassessment:
+
+- Step 16 can reuse the Step 14 fallback providers and the Step 15 request-id
+  correlation to assert replayable and non-replayable retry behavior.
+- Step 17 remains separate and should configure narrow e2e-only buffering
+  limits instead of mixing byte-limit behavior into retry/fallback assertions.
+- Step 18 should reuse the request-id observations from Step 15 to prove aborts
+  stop later provider or fallback work.
 
 ### 16. Add Retry, Fallback, And Replayability Tests
 

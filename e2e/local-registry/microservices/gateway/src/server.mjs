@@ -3,10 +3,12 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 
 import {
+  createMemoryProxySessionStore,
   createNodeHttpHandler,
   createProxyGateway,
   PIPELINE_STEP_TYPE,
   PROXY_GEO_STRICTNESS,
+  PROXY_IDENTITY_ROTATION,
   PROXY_PLAN_KIND,
   PROXY_PROVIDER_GEO_MODE,
   PROXY_ROUTE_KIND,
@@ -20,6 +22,7 @@ const providerBaseUrl =
 const observations = [];
 const providerInstanceId = 'micro-provider';
 const providerKind = 'mock-provider';
+const sessionStore = createMemoryProxySessionStore();
 const gatewayHandler = createNodeHttpHandler(createGateway());
 
 const server = createServer((request, response) => {
@@ -131,6 +134,74 @@ function createGateway() {
       }),
     },
     pipelines: [
+      {
+        id: 'sticky-session-write',
+        plan: [
+          {
+            args: {
+              attempts: [
+                {
+                  provider: 'sticky-provider-a',
+                  requirements: {
+                    identity: stickySessionIdentity(),
+                  },
+                },
+              ],
+            },
+            use: PIPELINE_STEP_TYPE.PLAN_FALLBACK,
+          },
+        ],
+        select: [
+          {
+            args: {
+              providerInstanceIds: ['sticky-provider-a', 'sticky-provider-b'],
+            },
+            use: PIPELINE_STEP_TYPE.PROVIDERS_INCLUDE,
+          },
+        ],
+        when: {
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/write',
+          },
+        },
+      },
+      {
+        id: 'sticky-session-read',
+        plan: [
+          {
+            args: {
+              attempts: [
+                {
+                  requirements: {
+                    identity: stickySessionIdentity(),
+                  },
+                },
+              ],
+            },
+            use: PIPELINE_STEP_TYPE.PLAN_FALLBACK,
+          },
+        ],
+        rank: [
+          {
+            use: PIPELINE_STEP_TYPE.PROVIDERS_PRIORITY,
+          },
+        ],
+        select: [
+          {
+            args: {
+              providerInstanceIds: ['sticky-provider-a', 'sticky-provider-b'],
+            },
+            use: PIPELINE_STEP_TYPE.PROVIDERS_INCLUDE,
+          },
+        ],
+        when: {
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/read',
+          },
+        },
+      },
       {
         id: 'gateway-policy-gb',
         plan: [
@@ -273,6 +344,7 @@ function createGateway() {
         priority: 1,
       },
     ],
+    sessionStore,
     transport: createTransport(),
   });
 }
@@ -307,6 +379,12 @@ function createProviders() {
     }),
     createProvider('fallback-primary-provider'),
     createProvider('fallback-secondary-provider'),
+    createProvider('sticky-provider-a', {
+      priority: 1,
+    }),
+    createProvider('sticky-provider-b', {
+      priority: 10,
+    }),
   ];
 }
 
@@ -319,6 +397,7 @@ function createProvider(id, options = {}) {
           context: input.context,
           planKind: PROXY_PLAN_KIND.FALLBACK,
           ...policyObservationForProvider(input.providerInstanceId),
+          requestId: input.requestId,
           requirements: input.requirements,
           routeKind: PROXY_ROUTE_KIND.DIRECT,
           selectedProvider: input.providerInstanceId,
@@ -326,6 +405,7 @@ function createProvider(id, options = {}) {
             consistency: input.context.consistency ?? null,
             flowKey: input.context.flowKey ?? null,
           },
+          targetUrl: input.target.url,
           type: 'provider-acquire',
         });
 
@@ -377,6 +457,15 @@ function gbCapabilities() {
   };
 }
 
+function stickySessionIdentity() {
+  return {
+    isolationKey: 'micro-sticky',
+    rotation: PROXY_IDENTITY_ROTATION.STICKY,
+    stickySessionId: 'micro-sticky-session',
+    stickySessionTtlMs: 60_000,
+  };
+}
+
 function policyObservationForProvider(id) {
   switch (id) {
     case providerInstanceId:
@@ -418,6 +507,11 @@ function policyObservationForProvider(id) {
         policyAttemptId: 'secondary',
         policyPipelineId: 'gateway-policy-fallback',
       };
+    case 'sticky-provider-a':
+    case 'sticky-provider-b':
+      return {
+        policyPipelineId: 'sticky-session',
+      };
     default:
       return {};
   }
@@ -428,6 +522,7 @@ function createTransport() {
     execute: async (input) => {
       const mode = readMode(input.target.url);
       observations.push({
+        requestId: input.requestId,
         routeProvider: input.route.providerInstanceId ?? null,
         targetBody: describeTargetBody(input.target.body),
         targetFetch: input.target.fetch,
@@ -454,6 +549,7 @@ function createTransport() {
       const providerResponse = await fetch(`${providerBaseUrl}/execute`, {
         body: JSON.stringify({
           mode,
+          requestId: input.requestId,
           target: {
             body: serializeTargetBody(input.target.body),
             fetch: input.target.fetch,
@@ -477,6 +573,7 @@ function createTransport() {
           baseUrl: input.target.url,
           location: providerResponse.headers.get('location'),
           mode,
+          requestId: input.requestId,
           result: finalUrlCheck,
           type: 'final-url-check',
         });

@@ -72,6 +72,7 @@ async function execute(request, response) {
     mode,
     observedAt,
     path: request.url,
+    requestId: typeof body.requestId === 'string' ? body.requestId : null,
     targetBody: body.target?.body ?? null,
     targetContentType: readHeader(body.target?.headers, 'content-type'),
     targetFetch: body.target?.fetch ?? {},
