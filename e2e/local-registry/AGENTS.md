@@ -50,6 +50,7 @@ Rules:
 - Response buffering-limit tests should use deterministic gateway-generated streams and assert the mock-provider is not called, so they cover service-response buffering rather than provider passthrough behavior.
 - Timeout/abort tests should distinguish local `proxy-fetch` upload cancellation before gateway planning, serialized gateway total-timeout HTTP 504 service errors, and plan-level per-attempt timeouts that may fallback when retry policy allows.
 - Error/redaction tests that need raw service error envelope bodies should capture a cloned service response with a `fetchImpl` wrapper, because `@echospecter/proxy-fetch` exposes service HTTP 4xx/5xx as `SERVICE_HTTP_ERROR`; avoid URL username/password fixtures because Web `Request` rejects them before gateway execution.
+- Live public endpoint tests should route through the mock-provider `live-public` mode using a service-only target header that the provider strips before upstream fetch, and should skip only strict assertions for temporary upstream statuses 429, 502, 503, and 504 while still asserting the gateway/provider path was exercised.
 ```
 
 Consumer test coverage should include:

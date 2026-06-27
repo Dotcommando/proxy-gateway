@@ -128,6 +128,9 @@ async function execute(request, response) {
         ok: false,
       });
       return;
+    case 'live-public':
+      await proxyLiveTarget(body, response);
+      return;
     case 'redirect-safe':
       writeRedirect(response, 'https://example.com/final');
       return;
@@ -175,6 +178,90 @@ function writeRedirect(response, location) {
     location,
   });
   response.end();
+}
+
+async function proxyLiveTarget(body, response) {
+  try {
+    const target = body.target;
+    const upstreamResponse = await fetch(target.url, {
+      body: createLiveRequestBody(target),
+      headers: createLiveRequestHeaders(target.headers),
+      method: target.method ?? 'GET',
+      redirect: 'follow',
+    });
+    const bytes = new Uint8Array(await upstreamResponse.arrayBuffer());
+
+    writeLiveResponse(response, upstreamResponse, bytes);
+  } catch (error) {
+    writeJson(response, 502, {
+      error: 'live_upstream_fetch_failed',
+      message: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
+}
+
+function createLiveRequestHeaders(headers) {
+  const liveHeaders = new Headers();
+
+  if (!Array.isArray(headers)) {
+    return liveHeaders;
+  }
+
+  for (const [name, value] of headers) {
+    const normalizedName = String(name).toLowerCase();
+
+    if (
+      normalizedName === 'host'
+      || normalizedName === 'content-length'
+      || normalizedName === 'x-micro-mode'
+    ) {
+      continue;
+    }
+
+    liveHeaders.append(name, value);
+  }
+
+  return liveHeaders;
+}
+
+function createLiveRequestBody(target) {
+  const method = target.method ?? 'GET';
+
+  if (method === 'GET' || method === 'HEAD') {
+    return undefined;
+  }
+  if (target.body?.kind === 'text') {
+    return target.body.text;
+  }
+  if (target.body?.kind === 'bytes') {
+    return Buffer.from(target.body.base64, 'base64');
+  }
+
+  return undefined;
+}
+
+function writeLiveResponse(response, upstreamResponse, bytes) {
+  response.statusCode = upstreamResponse.status;
+  response.statusMessage = upstreamResponse.statusText;
+
+  upstreamResponse.headers.forEach((value, name) => {
+    if (shouldForwardLiveResponseHeader(name)) {
+      response.setHeader(name, value);
+    }
+  });
+
+  response.end(bytes);
+}
+
+function shouldForwardLiveResponseHeader(name) {
+  const normalizedName = name.toLowerCase();
+
+  return (
+    normalizedName !== 'content-encoding'
+    && normalizedName !== 'content-length'
+    && normalizedName !== 'transfer-encoding'
+    && normalizedName !== 'connection'
+  );
 }
 
 function delay(ms) {

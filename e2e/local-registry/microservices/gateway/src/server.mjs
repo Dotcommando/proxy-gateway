@@ -768,39 +768,43 @@ function createTransport() {
   return {
     execute: async (input) => {
       const mode = readMode(input.target.url);
+      const executionMode = readModeHeader(input.target.headers) ?? mode;
       observations.push({
         requestId: input.requestId,
         routeProvider: input.route.providerInstanceId ?? null,
         targetBody: describeTargetBody(input.target.body),
         targetFetch: input.target.fetch,
         targetHeaders: input.target.headers,
-        mode,
+        mode: executionMode,
         targetMethod: input.target.method,
         targetUrl: input.target.url,
         type: 'transport-execute',
       });
 
-      if (shouldFailPrimaryFallback(mode, input.route.providerInstanceId)) {
+      if (shouldFailPrimaryFallback(executionMode, input.route.providerInstanceId)) {
         throw new Error('gateway policy fallback primary failure');
       }
 
-      if (mode === 'error-redaction-transport-failure') {
+      if (executionMode === 'error-redaction-transport-failure') {
         throw new Error('deterministic target transport failure');
       }
 
-      const specialResponse = createSpecialTargetResponse(mode);
+      const specialResponse = createSpecialTargetResponse(executionMode);
 
       if (specialResponse !== undefined) {
         return specialResponse;
       }
 
-      const bufferingLimitResponse = createBufferingLimitTargetResponse(mode);
+      const bufferingLimitResponse = createBufferingLimitTargetResponse(executionMode);
 
       if (bufferingLimitResponse !== undefined) {
         return bufferingLimitResponse;
       }
 
-      const timeoutAbortResponse = await createTimeoutAbortTargetResponse(mode, input);
+      const timeoutAbortResponse = await createTimeoutAbortTargetResponse(
+        executionMode,
+        input,
+      );
 
       if (timeoutAbortResponse !== undefined) {
         return timeoutAbortResponse;
@@ -809,7 +813,7 @@ function createTransport() {
       const providerResponse = await fetch(`${providerBaseUrl}/execute`, {
         body: JSON.stringify({
           delayMs: readDelayMs(input.target.url),
-          mode,
+          mode: executionMode,
           requestId: input.requestId,
           target: {
             body: serializeTargetBody(input.target.body),
@@ -868,6 +872,12 @@ function shouldFailPrimaryFallback(mode, providerId) {
 
 function readMode(targetUrl) {
   return new URL(targetUrl).searchParams.get('mode') ?? 'text';
+}
+
+function readModeHeader(headers) {
+  const header = headers.find(([name]) => name.toLowerCase() === 'x-micro-mode');
+
+  return header === undefined ? undefined : header[1];
 }
 
 function readDelayMs(targetUrl) {

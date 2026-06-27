@@ -1863,7 +1863,7 @@ Next three steps reassessment:
   `SERVICE_HTTP_ERROR` while raw envelopes are available only through capture or
   lower-level service calls.
 
-### 20. Add Live Public Endpoint Tests
+### 20. Add Live Public Endpoint Tests - Completed
 
 Red:
 
@@ -1882,6 +1882,42 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern live-endpoints"
 ```
+
+Progress:
+
+- Added `live-endpoints.test.mjs` in the microservice consumer, based on the
+  live endpoint categories from `@echospecter/proxy-fetch`.
+- Added mock-provider `live-public` mode that performs real outbound `fetch`
+  calls to target public APIs and returns their status, headers, and body through
+  the gateway path.
+- Added gateway support for reading the deterministic fixture mode from
+  `x-micro-mode`, so live target URLs do not need test-only query parameters.
+- Filtered `x-micro-mode`, `host`, and `content-length` before upstream live
+  fetches, and filtered hop-by-hop/decoded-body response headers before the
+  provider returns live responses to the gateway.
+- Covered JSONPlaceholder, Open-Meteo, GitHub README JSON/base64, httpbin
+  base64/text, httpbin JSON lines, httpbin binary bytes, httpbin multipart POST,
+  httpbin gzip, Picsum image redirect, and World Bank XML/JSON.
+- Added flake-tolerant strict assertion skips for temporary upstream statuses
+  `429`, `502`, `503`, and `504` while still asserting the gateway and provider
+  path was exercised.
+- Updated `e2e/local-registry/AGENTS.md` with the live-public mode and temporary
+  upstream status rule.
+- Verified the focused `live-endpoints` compose path after starting
+  `micro-provider` and `micro-gateway`; the run passed with temporary strict
+  skips for currently unavailable httpbin endpoints.
+
+Next three steps reassessment:
+
+- Step 21 should add the one-command runner around the full microservice suite,
+  including live endpoint tests, with cleanup traps so temporary upstream
+  failures do not leave containers running.
+- Step 21 documentation should explicitly call out that live endpoint tests are
+  not the deterministic compatibility source of truth and may skip strict
+  assertions for temporary upstream statuses.
+- The release gate section remains valid, but the one-command runner should be
+  kept outside default `npm test` because Step 20 introduced real public network
+  dependency.
 
 ### 21. Add One-Command Runner And Documentation
 
