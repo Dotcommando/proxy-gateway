@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 export function createProvider() {
   return {
     id: 'local-direct-provider',
@@ -63,7 +65,7 @@ export function createProxyFetchEnvelope() {
       method: 'POST',
       headers: [
         ['content-type', 'text/plain; charset=utf-8'],
-        ['idempotency-key', 'local-smoke-1']
+        ['idempotency-key', 'local-test-1']
       ],
       body: {
         kind: 'text',
@@ -72,7 +74,7 @@ export function createProxyFetchEnvelope() {
       redirect: 'manual'
     },
     context: {
-      useCase: 'local-registry-smoke',
+      useCase: 'local-registry-test',
       metadata: {
         source: 'docker-consumer'
       }
@@ -83,7 +85,7 @@ export function createProxyFetchEnvelope() {
   };
 }
 
-export async function assertGatewaySmoke(createProxyGateway, label) {
+export async function assertGatewayResponse(createProxyGateway) {
   const gateway = createProxyGateway({
     plan: {
       attempts: [
@@ -108,21 +110,9 @@ export async function assertGatewaySmoke(createProxyGateway, label) {
 
   const envelope = await response.json();
 
-  if (response.status !== 200) {
-    throw new Error(`${label}: expected HTTP 200 service response, got ${response.status}`);
-  }
-  if (envelope.ok !== true) {
-    throw new Error(`${label}: expected ok=true service envelope: ${JSON.stringify(envelope)}`);
-  }
-  if (envelope.response?.status !== 200) {
-    throw new Error(`${label}: expected target status 200: ${JSON.stringify(envelope)}`);
-  }
-  if (envelope.response?.body?.kind !== 'text') {
-    throw new Error(`${label}: expected text body: ${JSON.stringify(envelope)}`);
-  }
-  if (!envelope.response.body.text.includes('local consumer reached target: POST')) {
-    throw new Error(`${label}: unexpected target body: ${envelope.response.body.text}`);
-  }
-
-  console.log(`${label}: ok`);
+  assert.equal(response.status, 200);
+  assert.equal(envelope.ok, true);
+  assert.equal(envelope.response?.status, 200);
+  assert.equal(envelope.response?.body?.kind, 'text');
+  assert.match(envelope.response.body.text, /local consumer reached target: POST/);
 }

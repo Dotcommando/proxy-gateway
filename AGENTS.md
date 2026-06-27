@@ -8,12 +8,25 @@ This is the root working contract for agents and contributors. Keep it compact. 
 
 We work through a top-level markdown task file, usually named by the user, such as `PHASE_0.1.md`.
 
-The active task file should contain the task description, decomposition, Red/Green/Verify notes, and implementation progress. After each completed step:
+The active task file should contain the task description, decomposition, Red/Green/Verify notes, and implementation progress.
+
+Before starting any step:
+
+```txt
+- check whether the step is clear, small enough, and testable;
+- split or clarify the step before implementation if it is too large, ambiguous, or missing Red/Green/Verify detail;
+- stop and ask the user focused questions when ambiguity cannot be resolved from the workspace, current task file, or relevant AGENTS.md contracts.
+```
+
+Do not implement an unclear step just to preserve the existing plan shape. First make the plan executable.
+
+After each completed step:
 
 ```txt
 - mark the completed step in the active task file;
 - describe what was implemented;
-- reassess the next three steps;
+- reassess the next three steps in light of the work just completed;
+- update those next steps when contracts, assumptions, scope, or remaining work changed;
 - split or clarify any upcoming step that is too large or ambiguous;
 - automatically check whether nested AGENTS.md files need updates;
 - update nested AGENTS.md files when a new durable architecture rule appears.

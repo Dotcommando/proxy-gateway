@@ -1,3 +1,6 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
 import {
   createMemoryProxySessionStore,
   createProxyGateway,
@@ -24,13 +27,7 @@ const requestContext = {
   tenantId: 'tenant-a'
 };
 
-await assertRouteAndDefaultRouteConfig();
-await assertPipelineBuiltInsConfig();
-await assertStickySessionReuse();
-
-console.log('v0.2 config: ok');
-
-async function assertRouteAndDefaultRouteConfig() {
+test('route and defaultRoute config select the expected providers', async () => {
   const acquiredProviderIds = [];
   const gateway = createProxyGateway({
     defaultRoute: {
@@ -55,15 +52,15 @@ async function assertRouteAndDefaultRouteConfig() {
 
   await expectOk(gateway, proxyFetchJsonRequest({
     url: targetUrl
-  }), 'route/default route config matched route');
+  }));
   await expectOk(gateway, proxyFetchJsonRequest({
     url: 'https://unknown.example.test/v1/resource'
-  }), 'route/default route config used default route');
+  }));
 
-  expectEqual(acquiredProviderIds, ['route-provider', 'default-provider'], 'route/default route provider order');
-}
+  assert.deepEqual(acquiredProviderIds, ['route-provider', 'default-provider']);
+});
 
-async function assertPipelineBuiltInsConfig() {
+test('pipeline built-ins select the highest priority matching provider', async () => {
   const acquiredProviderIds = [];
   const gateway = createProxyGateway({
     pipelines: [
@@ -115,12 +112,12 @@ async function assertPipelineBuiltInsConfig() {
     transport: okTransport()
   });
 
-  await expectOk(gateway, proxyFetchJsonRequest(), 'pipeline built-ins config');
+  await expectOk(gateway, proxyFetchJsonRequest());
 
-  expectEqual(acquiredProviderIds, ['residential-high'], 'pipeline selected highest priority residential provider');
-}
+  assert.deepEqual(acquiredProviderIds, ['residential-high']);
+});
 
-async function assertStickySessionReuse() {
+test('sticky session config reuses the stored provider', async () => {
   const sessionStore = createMemoryProxySessionStore();
   const firstAcquiredProviderIds = [];
   const secondAcquiredProviderIds = [];
@@ -153,8 +150,8 @@ async function assertStickySessionReuse() {
     transport: okTransport()
   });
 
-  await expectOk(firstGateway, proxyFetchJsonRequest(), 'sticky session initial write');
-  expectEqual(firstAcquiredProviderIds, ['sticky-provider-b'], 'sticky initial provider');
+  await expectOk(firstGateway, proxyFetchJsonRequest());
+  assert.deepEqual(firstAcquiredProviderIds, ['sticky-provider-b']);
 
   const secondGateway = createProxyGateway({
     pipelines: [
@@ -184,9 +181,9 @@ async function assertStickySessionReuse() {
     transport: okTransport()
   });
 
-  await expectOk(secondGateway, proxyFetchJsonRequest(), 'sticky session reuse');
-  expectEqual(secondAcquiredProviderIds, ['sticky-provider-b'], 'sticky reused provider');
-}
+  await expectOk(secondGateway, proxyFetchJsonRequest());
+  assert.deepEqual(secondAcquiredProviderIds, ['sticky-provider-b']);
+});
 
 function fallbackPlan(providerInstanceId) {
   return {
@@ -283,23 +280,11 @@ function proxyFetchJsonRequest(overrides = {}) {
   });
 }
 
-async function expectOk(gateway, request, label) {
+async function expectOk(gateway, request) {
   const response = await gateway.handle(request);
   const envelope = await response.json();
 
-  if (response.status !== 200) {
-    throw new Error(`${label}: expected HTTP 200 service response, got ${response.status}: ${JSON.stringify(envelope)}`);
-  }
-  if (envelope.ok !== true) {
-    throw new Error(`${label}: expected ok=true service envelope: ${JSON.stringify(envelope)}`);
-  }
-  if (envelope.response?.status !== 200) {
-    throw new Error(`${label}: expected target status 200: ${JSON.stringify(envelope)}`);
-  }
-}
-
-function expectEqual(actual, expected, label) {
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-  }
+  assert.equal(response.status, 200);
+  assert.equal(envelope.ok, true);
+  assert.equal(envelope.response?.status, 200);
 }

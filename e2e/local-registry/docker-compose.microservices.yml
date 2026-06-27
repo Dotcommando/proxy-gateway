@@ -1,0 +1,67 @@
+services:
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    ports:
+      - "4873:4873"
+    volumes:
+      - ./verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+      - micro-verdaccio-storage:/verdaccio/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4873/-/ping').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  micro-consumer:
+    image: node:20-alpine
+    working_dir: /app
+    depends_on:
+      verdaccio:
+        condition: service_healthy
+    volumes:
+      - ./microservices/consumer:/app
+      - micro-consumer-node-modules:/app/node_modules
+    environment:
+      MICRO_GATEWAY_BASE_URL: http://micro-gateway:8080
+      MICRO_PROVIDER_BASE_URL: http://micro-provider:8081
+      NPM_CONFIG_REGISTRY: http://verdaccio:4873
+    command: >
+      sh -lc "npm install --package-lock=false --no-audit --no-fund
+      && npm run test:e2e"
+
+  micro-gateway:
+    image: node:20-alpine
+    working_dir: /app
+    depends_on:
+      verdaccio:
+        condition: service_healthy
+    volumes:
+      - ./microservices/gateway:/app
+      - micro-gateway-node-modules:/app/node_modules
+    environment:
+      NPM_CONFIG_REGISTRY: http://verdaccio:4873
+      MICRO_GATEWAY_PORT: "8080"
+      MICRO_PROVIDER_BASE_URL: http://micro-provider:8081
+    command: >
+      sh -lc "npm install --package-lock=false --no-audit --no-fund
+      && npm run start"
+
+  micro-provider:
+    image: node:20-alpine
+    working_dir: /app
+    depends_on:
+      verdaccio:
+        condition: service_healthy
+    volumes:
+      - ./microservices/mock-provider:/app
+      - micro-provider-node-modules:/app/node_modules
+    environment:
+      NPM_CONFIG_REGISTRY: http://verdaccio:4873
+      MICRO_PROVIDER_PORT: "8081"
+    command: npm run start
+
+volumes:
+  micro-consumer-node-modules:
+  micro-gateway-node-modules:
+  micro-provider-node-modules:
+  micro-verdaccio-storage:

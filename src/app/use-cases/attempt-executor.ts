@@ -111,7 +111,11 @@ export class AttemptExecutor {
         parentSignal: input.parentSignal,
         requestId: input.requestId,
         target: input.target,
-        ...(input.attemptTimeoutMs !== undefined && { attemptTimeoutMs: input.attemptTimeoutMs }),
+        ...(attempt.timeoutMs !== undefined
+          ? { attemptTimeoutMs: attempt.timeoutMs }
+          : input.attemptTimeoutMs !== undefined
+            ? { attemptTimeoutMs: input.attemptTimeoutMs }
+            : {}),
       });
 
       events.push(...result.events);

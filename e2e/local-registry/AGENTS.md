@@ -24,11 +24,41 @@ Rules:
 - Do not add `always-auth`; current npm warns on that config.
 - `.npmrc.local-registry` is generated local state and must stay ignored.
 - The consumer should install with `--package-lock=false` so Verdaccio tarball URLs are not committed.
+- The existing consumer should depend on `@echospecter/proxy-gateway` through the `local` dist-tag produced by `publish-local.sh`, not a hard-coded package version.
+- Only `@echospecter/proxy-gateway` is locally published in this lab; `@echospecter/proxy-fetch` should resolve from npmjs through Verdaccio unless a task explicitly tests a local proxy-fetch build.
+- Do not commit developer-specific absolute paths, and do not import runtime test files from a local proxy-fetch checkout; copy public fixture data into this repository when needed.
 - Keep the consumer on the minimum supported Node line unless explicitly testing a version matrix.
-- Root lint may cover consumer JS smoke files, but consumer TS smoke files compile through the consumer `smoke:types` script.
+- Root lint may cover consumer JS test files, but consumer TS type contract files compile through the consumer `test:types` script.
+- Existing and new consumer scenarios should run through `node:test` with `node:assert/strict`; shell scripts and Docker Compose should only orchestrate publishing, installing, and test command execution.
+- Microservice lab packages live under `e2e/local-registry/microservices/consumer`, `gateway`, and `mock-provider`; Docker Compose service names may still use `micro-consumer`, `micro-gateway`, and `micro-provider`.
+- The microservice compose lab must use a dedicated project name, distinct `micro-*` volumes, and no fixed `container_name` values so it can coexist with the existing local-registry lab.
+- The microservice consumer should use Node test discovery in its `test:e2e` script so npm can append focused filters such as `--test-name-pattern health`.
+- Keep the microservice lab outside default `npm test` and `prepublishOnly`; it is a Docker/live-network release gate run explicitly with `npm run test:e2e:microservices`.
+- Verdaccio config must list the `@echospecter/proxy-fetch` npmjs uplink rule before the broader local-only `@echospecter/*` package rule.
+- Focused `micro-consumer` compose runs that require installed packages should execute `npm install --package-lock=false --no-audit --no-fund` before `npm run test:e2e -- --test-name-pattern ...`.
+- Focused `micro-consumer` compose runs that exercise the gateway data path should start `micro-provider` and `micro-gateway` first; the full runner owns clean setup, but focused commands may assume those services are already running.
+- Focused microservice runs after gateway package internals change must reset Verdaccio and republish `@echospecter/proxy-gateway` before starting `micro-gateway`.
+- `reset-registry.sh` must reset both the existing local-registry compose lab and the microservice compose lab volumes.
+- The mock-provider deterministic API is `POST /execute` plus `GET /observations` and `POST /observations/reset`; deterministic tests should use it before adding live public endpoint coverage.
+- Focused Node test patterns must be specific enough to avoid running unrelated scenario files in parallel.
+- The micro-gateway deterministic path is `POST /fetch` through `createNodeHttpHandler(createProxyGateway(...))`; keep health, package-source, and observations endpoints as thin side endpoints around that gateway path.
+- Target body observations should use the shared summary shape `{ kind, byteLength, sha256 }`, adding `text` or `base64` only when needed for format-specific assertions.
+- Binary request tests should assert byte preservation by reconstructing observed `base64` bodies, and preflight rejection tests must assert the micro-gateway observations stay empty.
+- Response format tests should assert native client `Response` behavior and may capture service response `content-type` through a `fetchImpl` wrapper when distinguishing multipart from JSON base64 service transport.
+- Special response tests should send valid special envelopes through deterministic micro-gateway modes; invalid service response fixtures should stay consumer-only and assert gateway observations remain empty.
+- Client boundary tests may opt into service-header observations with a dedicated service request header; API keys must be asserted on service headers and absent from target headers.
+- Fetch metadata tests should assert normalized `targetFetch` at both micro-gateway and mock-provider boundaries, and should use explicit `final-url-check` observations for redirect/final URL guard coverage.
+- Gateway policy tests should use declarative `defaultRoute`, `routes`, and `pipelines` config and assert selected route, pipeline, provider, requirements, and fallback sequence through e2e observations instead of package internals.
+- Sticky session and parallel microservice tests should correlate gateway and mock-provider observations by gateway `requestId`; assert isolation through context fields that `@echospecter/proxy-fetch` actually serializes, and use target-host isolation when tenant or route keys are not present at the client boundary.
+- Retry/fallback replayability tests should keep parser-limit failures separate from target-body replayability decisions; use JSON base64 transport when a large binary target body must reach gateway planning and become `non-replayable`.
+- Response buffering-limit tests should use deterministic gateway-generated streams and assert the mock-provider is not called, so they cover service-response buffering rather than provider passthrough behavior.
+- Timeout/abort tests should distinguish local `proxy-fetch` upload cancellation before gateway planning, serialized gateway total-timeout HTTP 504 service errors, and plan-level per-attempt timeouts that may fallback when retry policy allows.
+- Error/redaction tests that need raw service error envelope bodies should capture a cloned service response with a `fetchImpl` wrapper, because `@echospecter/proxy-fetch` exposes service HTTP 4xx/5xx as `SERVICE_HTTP_ERROR`; avoid URL username/password fixtures because Web `Request` rejects them before gateway execution.
+- Live public endpoint tests should route through the mock-provider `live-public` mode using a service-only target header that the provider strips before upstream fetch, and should skip only strict assertions for temporary upstream statuses 429, 502, 503, and 504 while still asserting the gateway/provider path was exercised.
+- The one-command microservice runner must reset stale registry state, publish the current gateway package to local Verdaccio, run the full microservice suite, and clean up microservice containers/volumes through a trap.
 ```
 
-Consumer smoke coverage should include:
+Consumer test coverage should include:
 
 ```txt
 - public runtime exports and deferred framework wrapper absence;

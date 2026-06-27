@@ -1,0 +1,287 @@
+import { createServer } from 'node:http';
+
+const port = Number.parseInt(process.env.MICRO_PROVIDER_PORT ?? '8081', 10);
+const observations = [];
+
+const server = createServer((request, response) => {
+  handleRequest(request, response).catch((error) => {
+    writeJson(response, 500, {
+      error: 'provider_unhandled_error',
+      message: error instanceof Error ? error.message : 'unknown error',
+    });
+  });
+});
+
+server.listen(port, '0.0.0.0');
+
+process.on('SIGTERM', () => {
+  server.close(() => {
+    process.exit(0);
+  });
+});
+
+async function handleRequest(request, response) {
+  if (request.method === 'GET' && request.url === '/health') {
+    writeJson(response, 200, {
+      ok: true,
+      service: 'micro-provider',
+    });
+    return;
+  }
+
+  if (request.method === 'POST' && request.url === '/execute') {
+    await execute(request, response);
+    return;
+  }
+
+  if (request.method === 'GET' && request.url === '/observations') {
+    writeJson(response, 200, {
+      items: observations,
+    });
+    return;
+  }
+
+  if (request.method === 'POST' && request.url === '/observations/reset') {
+    observations.length = 0;
+    writeJson(response, 200, {
+      ok: true,
+    });
+    return;
+  }
+
+  writeJson(response, 404, {
+    error: 'not_found',
+  });
+}
+
+function writeJson(response, statusCode, body) {
+  response.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+  });
+  response.end(`${JSON.stringify(body)}\n`);
+}
+
+async function execute(request, response) {
+  const body = await readJson(request);
+  const mode = typeof body.mode === 'string' ? body.mode : 'text';
+  const observedAt = new Date().toISOString();
+
+  observations.push({
+    bodyLength: JSON.stringify(body).length,
+    method: request.method,
+    mode,
+    observedAt,
+    path: request.url,
+    requestId: typeof body.requestId === 'string' ? body.requestId : null,
+    targetBody: body.target?.body ?? null,
+    targetContentType: readHeader(body.target?.headers, 'content-type'),
+    targetFetch: body.target?.fetch ?? {},
+    targetHeaders: body.target?.headers ?? [],
+    targetMethod: body.target?.method ?? null,
+    targetUrl: body.target?.url ?? null,
+  });
+
+  switch (mode) {
+    case 'text':
+      writeText(response, 200, 'deterministic text response');
+      return;
+    case 'gateway-policy-fallback':
+      writeText(response, 200, 'gateway policy fallback response');
+      return;
+    case 'retry-fallback-replayable':
+      writeText(response, 200, 'retry fallback replayable response');
+      return;
+    case 'json':
+      writeJson(response, 200, {
+        mode,
+        ok: true,
+      });
+      return;
+    case 'binary':
+      writeBytes(response, 200, [0, 1, 2, 3, 254, 255]);
+      return;
+    case 'no-content-204':
+      response.writeHead(204);
+      response.end();
+      return;
+    case 'reset-content-205':
+      response.writeHead(205);
+      response.end();
+      return;
+    case 'not-modified-304':
+      response.writeHead(304);
+      response.end();
+      return;
+    case 'target-404':
+      writeText(response, 404, 'deterministic target 404');
+      return;
+    case 'target-500':
+      writeText(response, 500, 'deterministic target 500');
+      return;
+    case 'slow':
+      await delay(typeof body.delayMs === 'number' ? body.delayMs : 250);
+      writeText(response, 200, 'deterministic slow response');
+      return;
+    case 'provider-failure':
+      writeJson(response, 503, {
+        error: 'provider_failure',
+        ok: false,
+      });
+      return;
+    case 'live-public':
+      await proxyLiveTarget(body, response);
+      return;
+    case 'redirect-safe':
+      writeRedirect(response, 'https://example.com/final');
+      return;
+    case 'redirect-denied':
+      writeRedirect(response, 'http://127.0.0.1/private');
+      return;
+    default:
+      writeJson(response, 400, {
+        error: 'unknown_mode',
+        mode,
+      });
+  }
+}
+
+async function readJson(request) {
+  const chunks = [];
+
+  for await (const chunk of request) {
+    chunks.push(chunk);
+  }
+
+  if (chunks.length === 0) {
+    return {};
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function writeText(response, statusCode, body) {
+  response.writeHead(statusCode, {
+    'content-type': 'text/plain; charset=utf-8',
+  });
+  response.end(body);
+}
+
+function writeBytes(response, statusCode, bytes) {
+  response.writeHead(statusCode, {
+    'content-type': 'application/octet-stream',
+  });
+  response.end(Uint8Array.from(bytes));
+}
+
+function writeRedirect(response, location) {
+  response.writeHead(302, {
+    location,
+  });
+  response.end();
+}
+
+async function proxyLiveTarget(body, response) {
+  try {
+    const target = body.target;
+    const upstreamResponse = await fetch(target.url, {
+      body: createLiveRequestBody(target),
+      headers: createLiveRequestHeaders(target.headers),
+      method: target.method ?? 'GET',
+      redirect: 'follow',
+    });
+    const bytes = new Uint8Array(await upstreamResponse.arrayBuffer());
+
+    writeLiveResponse(response, upstreamResponse, bytes);
+  } catch (error) {
+    writeJson(response, 502, {
+      error: 'live_upstream_fetch_failed',
+      message: error instanceof Error ? error.message : 'unknown error',
+    });
+  }
+}
+
+function createLiveRequestHeaders(headers) {
+  const liveHeaders = new Headers();
+
+  if (!Array.isArray(headers)) {
+    return liveHeaders;
+  }
+
+  for (const [name, value] of headers) {
+    const normalizedName = String(name).toLowerCase();
+
+    if (
+      normalizedName === 'host'
+      || normalizedName === 'content-length'
+      || normalizedName === 'x-micro-mode'
+    ) {
+      continue;
+    }
+
+    liveHeaders.append(name, value);
+  }
+
+  return liveHeaders;
+}
+
+function createLiveRequestBody(target) {
+  const method = target.method ?? 'GET';
+
+  if (method === 'GET' || method === 'HEAD') {
+    return undefined;
+  }
+  if (target.body?.kind === 'text') {
+    return target.body.text;
+  }
+  if (target.body?.kind === 'bytes') {
+    return Buffer.from(target.body.base64, 'base64');
+  }
+
+  return undefined;
+}
+
+function writeLiveResponse(response, upstreamResponse, bytes) {
+  response.statusCode = upstreamResponse.status;
+  response.statusMessage = upstreamResponse.statusText;
+
+  upstreamResponse.headers.forEach((value, name) => {
+    if (shouldForwardLiveResponseHeader(name)) {
+      response.setHeader(name, value);
+    }
+  });
+
+  response.end(bytes);
+}
+
+function shouldForwardLiveResponseHeader(name) {
+  const normalizedName = name.toLowerCase();
+
+  return (
+    normalizedName !== 'content-encoding'
+    && normalizedName !== 'content-length'
+    && normalizedName !== 'transfer-encoding'
+    && normalizedName !== 'connection'
+  );
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function readHeader(headers, name) {
+  if (!Array.isArray(headers)) {
+    return null;
+  }
+
+  const normalizedName = name.toLowerCase();
+  const header = headers.find(
+    (entry) =>
+      Array.isArray(entry)
+      && entry.length >= 2
+      && String(entry[0]).toLowerCase() === normalizedName,
+  );
+
+  return header === undefined ? null : String(header[1]);
+}
