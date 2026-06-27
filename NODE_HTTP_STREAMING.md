@@ -580,7 +580,7 @@ Next-step reassessment:
 
 ### Step 8 - Regression: preserve raw JSON and multipart compatibility
 
-Status: pending
+Status: completed
 
 Scope:
 
@@ -599,9 +599,36 @@ npm test -- node-http-handler-matrix
 npm test -- proxy-fetch-wire-compatibility
 ```
 
+Verify result:
+
+```txt
+npm test -- inbound-adapter-contract
+Test Suites: 1 passed, 1 total
+Tests: 4 passed, 4 total
+
+npm test -- node-http-handler-matrix
+Test Suites: 1 passed, 1 total
+Tests: 12 passed, 12 total
+
+npm test -- proxy-fetch-wire-compatibility
+Test Suites: 1 passed, 1 total
+Tests: 3 passed, 3 total
+```
+
+Implemented:
+
+- No new regression tests were needed for this step.
+- Existing suites already cover raw JSON body preservation, multipart request/response bytes, binary body compatibility, Node boundary status/header/body behavior, and proxy-fetch wire constants.
+
+Next-step reassessment:
+
+- Step 9 is the remaining final verification gate.
+- Run the full requested commands before marking this task complete.
+- `npm run lint` is intentionally not part of Step 9 in this task file because the repository lint script uses `--fix`; run it separately only when ready for formatter/fixer changes.
+
 ### Step 9 - Full verification
 
-Status: pending
+Status: completed
 
 Run:
 
@@ -610,6 +637,34 @@ npm run typecheck
 npm test
 npm run pack:check
 ```
+
+Verify result:
+
+```txt
+npm run typecheck
+tsc --noEmit passed
+
+npm test
+Test Suites: 46 passed, 46 total
+Tests: 330 passed, 330 total
+
+npm run pack:check
+npm pack --dry-run passed
+Tarball total files: 9
+```
+
+Implemented:
+
+- Completed the final verification gate for the Node HTTP streaming task.
+- No additional code changes were needed in this step.
+
+Task outcome:
+
+- Node inbound request bodies are passed to the gateway as streaming Web `Request` bodies.
+- Node outbound Web `Response.body` streams are written to `ServerResponse` chunk-by-chunk.
+- JSON and multipart service envelope reads are bounded in `src/app/envelopes`.
+- Client abort during streamed inbound reads propagates to the Web `Request.signal`.
+- Raw JSON, multipart, binary, and wire compatibility regression suites pass.
 
 Do not run `npm run lint` during exploratory work unless ready for formatter/fixer changes, because the current lint script runs ESLint with `--fix`.
 
