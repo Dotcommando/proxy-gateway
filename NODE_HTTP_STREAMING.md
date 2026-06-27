@@ -65,7 +65,7 @@ These tests should be written first. They prove the buffering problem through st
 
 ### Reproduction Test A - inbound delegation waits for request end
 
-Status: pending
+Status: completed (red)
 
 Purpose:
 
@@ -210,7 +210,7 @@ The current implementation should fail this test because `response.arrayBuffer()
 
 ### Step 1 - Red: add inbound streaming reproduction test
 
-Status: pending
+Status: completed (red)
 
 Scope:
 
@@ -232,6 +232,26 @@ Verify:
 ```sh
 npm test -- node-http-handler
 ```
+
+Red result:
+
+```txt
+FAIL tests/node-http-handler.test.ts
+createNodeHttpHandler › delegates to the gateway before the full inbound body is received
+Rejected to value: [Error: Gateway handle was not called before request end.]
+```
+
+Implemented:
+
+- Added a focused low-level `node:http` test in `tests/node-http-handler.test.ts`.
+- The test opens a chunked `POST`, writes the first body chunk, keeps the request open, and expects `ProxyGateway.handle()` to have already been called.
+- Current implementation fails because the Node adapter waits for full body buffering before delegating.
+
+Next-step reassessment:
+
+- Step 2 is still clear, small, and testable: replace inbound `Buffer.concat()` with a streaming Web `Request` body.
+- Step 3 remains valid after Step 2: add the outbound response streaming Red test separately.
+- Step 4 remains valid but should not be started until Step 3 is red.
 
 ### Step 2 - Green: stream IncomingMessage into Web Request
 

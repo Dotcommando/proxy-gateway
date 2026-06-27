@@ -1,6 +1,10 @@
+import { createServer, request as createHttpRequest, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  createNodeHttpHandler,
   JSON_CONTENT_TYPE,
   WIRE_PROTOCOL_VERSION,
 } from '../src';
@@ -13,6 +17,53 @@ runInboundAdapterContractSuite({
 });
 
 describe('createNodeHttpHandler', () => {
+  it('delegates to the gateway before the full inbound body is received', async () => {
+    const handleCalled = createDeferred<void>();
+    const responseReceived = createDeferred<void>();
+    const server = createServer(createNodeHttpHandler({
+      handle: async () => {
+        handleCalled.resolve(undefined);
+
+        return new Response('ok');
+      },
+    }));
+
+    await listen(server);
+
+    const address = readAddressInfo(server);
+    const request = createHttpRequest({
+      headers: {
+        'content-type': JSON_CONTENT_TYPE,
+        'transfer-encoding': 'chunked',
+      },
+      host: '127.0.0.1',
+      method: 'POST',
+      path: '/proxy',
+      port: address.port,
+    }, (response) => {
+      response.resume();
+      response.once('end', () => {
+        responseReceived.resolve(undefined);
+      });
+      response.once('error', responseReceived.reject);
+    });
+
+    request.once('error', responseReceived.reject);
+
+    try {
+      request.write('{"partial":');
+
+      await expect(
+        withTimeout(handleCalled.promise, 100, 'Gateway handle was not called before request end.'),
+      ).resolves.toBeUndefined();
+    } finally {
+      request.end('"done"}');
+      await withTimeout(responseReceived.promise, 1_000, 'Node HTTP response was not received during cleanup.')
+        .catch(() => undefined);
+      await close(server);
+    }
+  });
+
   it('converts Node request URL method headers and raw body into a Web Request', async () => {
     let observedUrl = '';
     let observedMethod = '';
@@ -55,3 +106,85 @@ describe('createNodeHttpHandler', () => {
     expect(observedBody).toBe('{"raw":true}');
   });
 });
+
+interface IDeferred<T> {
+  promise: Promise<T>;
+  reject(reason?: unknown): void;
+  resolve(value: T | PromiseLike<T>): void;
+}
+
+function createDeferred<T>(): IDeferred<T> {
+  let resolveDeferred: ((value: T | PromiseLike<T>) => void) | undefined;
+  let rejectDeferred: ((reason?: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+
+  if (resolveDeferred === undefined || rejectDeferred === undefined) {
+    throw new Error('Expected deferred callbacks to be initialized.');
+  }
+
+  return {
+    promise,
+    reject: rejectDeferred,
+    resolve: resolveDeferred,
+  };
+}
+
+function listen(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error !== undefined) {
+        reject(error);
+
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+function readAddressInfo(server: Server): AddressInfo {
+  const address = server.address();
+
+  if (!isAddressInfo(address)) {
+    throw new Error('Expected server address info.');
+  }
+
+  return address;
+}
+
+function isAddressInfo(value: string | AddressInfo | null): value is AddressInfo {
+  return typeof value === 'object' && value !== null;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
