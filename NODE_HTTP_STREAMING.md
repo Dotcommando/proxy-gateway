@@ -415,7 +415,7 @@ Next-step reassessment:
 
 ### Step 5 - Red: bound JSON service envelope reads in app/envelopes
 
-Status: pending
+Status: completed (red)
 
 Scope:
 
@@ -438,6 +438,35 @@ Verify:
 npm test -- proxy-fetch-json-envelope
 npm test -- gateway-plan-flow
 ```
+
+Red result:
+
+```txt
+npm test -- proxy-fetch-json-envelope
+FAIL tests/proxy-fetch-json-envelope.test.ts
+ProxyFetchEnvelopeParser multipart dispatch › enforces the configured JSON request body limit while reading
+Received promise resolved instead of rejected
+
+npm test -- gateway-plan-flow
+FAIL tests/gateway-plan-flow.test.ts
+gateway planner-owned direct flow › returns a stable service error when the JSON service request exceeds the configured body limit
+Expected: 400
+Received: 200
+```
+
+Implemented:
+
+- Added a parser-level Red test in `tests/proxy-fetch-json-envelope.test.ts`.
+- Added a gateway-level Red test in `tests/gateway-plan-flow.test.ts`.
+- The parser test expects `ProxyFetchEnvelopeParser` to reject oversized JSON service envelopes with `JSON request body exceeded 80 bytes.`.
+- The gateway test expects the parser failure to become a stable `INVALID_PROXY_FETCH_REQUEST` service error and to prevent target transport execution.
+- Current implementation fails because JSON parsing still uses unbounded `request.text()`.
+
+Next-step reassessment:
+
+- Step 6 is still clear, small, and testable: add bounded JSON body reading inside `src/app/envelopes`.
+- Step 7 remains valid and should wait until Step 6 is green, because abort behavior depends on the final JSON/multipart stream read path.
+- Step 8 remains a regression pass after Step 6 and Step 7, with no new architecture rule needed yet.
 
 ### Step 6 - Green: add bounded JSON envelope body reader
 
