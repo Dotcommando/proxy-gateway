@@ -10,6 +10,8 @@ import {
   PROXY_GEO_STRICTNESS,
   PROXY_IDENTITY_ROTATION,
   PROXY_PLAN_KIND,
+  PROXY_PROTOCOL,
+  PROXY_ROUTE_AUTH_MODE,
   PROXY_PROVIDER_GEO_MODE,
   PROXY_ROUTE_KIND,
   RETRY_CONDITION,
@@ -24,6 +26,7 @@ const providerInstanceId = 'micro-provider';
 const providerKind = 'mock-provider';
 const sessionStore = createMemoryProxySessionStore();
 const gatewayHandler = createNodeHttpHandler(createGateway());
+const noRouteGatewayHandler = createNodeHttpHandler(createNoRouteGateway());
 
 const server = createServer((request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
@@ -78,6 +81,16 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (request.method === 'POST' && request.url === '/fetch-no-route') {
+    noRouteGatewayHandler(request, response).catch((error) => {
+      writeJson(response, 500, {
+        error: 'gateway_handler_failed',
+        message: error instanceof Error ? error.message : 'unknown error',
+      });
+    });
+    return;
+  }
+
   writeJson(response, 404, {
     error: 'not_found',
   });
@@ -122,6 +135,24 @@ async function writePackageSource(response) {
     name: packageJson.name,
     registry: process.env.NPM_CONFIG_REGISTRY ?? null,
     version: packageJson.version,
+  });
+}
+
+function createNoRouteGateway() {
+  return createProxyGateway({
+    providers: createProviders(),
+    routes: [
+      {
+        id: 'no-route-control',
+        match: {
+          host: 'matched.error-redaction.example.com',
+        },
+        plan: fallbackPlan(providerInstanceId, {
+          policyRouteId: 'no-route-control',
+        }),
+      },
+    ],
+    transport: createTransport(),
   });
 }
 
@@ -522,10 +553,7 @@ function createProvider(id, options = {}) {
           id: `${input.providerInstanceId}-${input.requestId}`,
           providerInstanceId: input.providerInstanceId,
           providerKind,
-          route: {
-            kind: PROXY_ROUTE_KIND.DIRECT,
-            providerInstanceId: input.providerInstanceId,
-          },
+          route: createLeaseRoute(input.providerInstanceId, input.target.url),
         };
       },
       getCapabilities: () => options.capabilities ?? {},
@@ -694,12 +722,38 @@ function policyObservationForProvider(id, targetUrl) {
   }
 }
 
+function createLeaseRoute(providerInstanceId, targetUrl) {
+  if (isErrorRedactionTarget(targetUrl)) {
+    return {
+      auth: {
+        mode: PROXY_ROUTE_AUTH_MODE.USERNAME_PASSWORD,
+        password: 'route-password',
+        token: 'route-token',
+        username: 'route-user',
+      },
+      host: 'proxy.example.com',
+      kind: PROXY_ROUTE_KIND.FORWARD_PROXY,
+      port: 8080,
+      protocol: PROXY_PROTOCOL.HTTP,
+    };
+  }
+
+  return {
+    kind: PROXY_ROUTE_KIND.DIRECT,
+    providerInstanceId,
+  };
+}
+
 function isRetryFallbackTarget(targetUrl) {
   return isPolicyTarget(targetUrl, 'retry-fallback.policy.example.com');
 }
 
 function isTimeoutAbortTarget(targetUrl) {
   return isPolicyTarget(targetUrl, 'timeout-abort.policy.example.com');
+}
+
+function isErrorRedactionTarget(targetUrl) {
+  return isPolicyTarget(targetUrl, 'error-redaction.policy.example.com');
 }
 
 function isPolicyTarget(targetUrl, hostname) {
@@ -728,6 +782,10 @@ function createTransport() {
 
       if (shouldFailPrimaryFallback(mode, input.route.providerInstanceId)) {
         throw new Error('gateway policy fallback primary failure');
+      }
+
+      if (mode === 'error-redaction-transport-failure') {
+        throw new Error('deterministic target transport failure');
       }
 
       const specialResponse = createSpecialTargetResponse(mode);

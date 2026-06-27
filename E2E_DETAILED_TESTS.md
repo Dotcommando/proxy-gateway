@@ -1801,7 +1801,7 @@ Next three steps reassessment:
   changes must reset Verdaccio and republish `@echospecter/proxy-gateway`
   before starting `micro-gateway`.
 
-### 19. Add Error Boundary, Target Access, And Redaction Tests
+### 19. Add Error Boundary, Target Access, And Redaction Tests - Completed
 
 Red:
 
@@ -1825,6 +1825,43 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern error-redaction"
 ```
+
+Progress:
+
+- Added `error-redaction.test.mjs` in the microservice consumer.
+- Added a dedicated no-default-route gateway handler at `/fetch-no-route` for
+  the `NO_ROUTE_MATCHED` e2e scenario without changing the normal `/fetch`
+  default-route behavior.
+- Added deterministic `error-redaction-transport-failure` gateway mode with a
+  credentialed proxy route so service error diagnostics include route and target
+  redaction surfaces.
+- Verified target access denial returns before provider acquisition, transport
+  execution, and mock-provider execution.
+- Verified no-route failure returns before provider acquisition, transport
+  execution, and mock-provider execution.
+- Verified transport failure diagnostics redact target authorization, cookies,
+  API keys, sensitive query parameters, route credentials, and service API key
+  material.
+- Captured raw service error envelope bodies through a cloned `fetchImpl`
+  response because `@echospecter/proxy-fetch` surfaces service HTTP 4xx/5xx as
+  `SERVICE_HTTP_ERROR`.
+- Updated `e2e/local-registry/AGENTS.md` with the raw service-error capture
+  rule and the URL userinfo caveat.
+- Verified the focused `error-redaction` compose path after starting
+  `micro-provider` and `micro-gateway`.
+
+Next three steps reassessment:
+
+- Step 20 should avoid service error assertions except for flake-tolerant live
+  upstream handling; deterministic error boundary and redaction coverage now
+  lives in Step 19.
+- Step 21 should document both focused e2e patterns introduced by Steps 18-19:
+  republish to local Verdaccio when package internals change, and use a cloned
+  `fetchImpl` response when raw service error envelopes must be inspected.
+- The release gate section remains valid, but the final e2e documentation should
+  make clear that service HTTP errors are observed by consumers as
+  `SERVICE_HTTP_ERROR` while raw envelopes are available only through capture or
+  lower-level service calls.
 
 ### 20. Add Live Public Endpoint Tests
 
