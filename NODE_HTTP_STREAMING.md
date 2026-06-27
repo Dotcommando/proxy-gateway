@@ -255,7 +255,7 @@ Next-step reassessment:
 
 ### Step 2 - Green: stream IncomingMessage into Web Request
 
-Status: pending
+Status: completed
 
 Scope:
 
@@ -283,6 +283,35 @@ Verify:
 npm test -- node-http-handler
 npm test -- inbound-adapter-contract
 ```
+
+Verify result:
+
+```txt
+npm test -- node-http-handler
+Test Suites: 2 passed, 2 total
+Tests: 18 passed, 18 total
+
+npm test -- inbound-adapter-contract
+Test Suites: 1 passed, 1 total
+Tests: 4 passed, 4 total
+
+npm run typecheck
+tsc --noEmit passed
+```
+
+Implemented:
+
+- `src/adapters/inbound/node-http-handler.ts` now creates a streaming Web `Request` body from `IncomingMessage`.
+- Streaming request bodies use `duplex: "half"` in the Web `Request` init.
+- Removed the inbound `Buffer.concat()` body read path and the extra Blob/ArrayBuffer copy.
+- Kept URL, method, raw header preservation, and abort signal wiring in the Node adapter.
+- Response writing is intentionally unchanged; outbound streaming remains Step 3/4.
+
+Next-step reassessment:
+
+- Step 3 is still clear, small, and testable: add the outbound Web `Response.body` streaming Red test.
+- Step 4 remains the paired Green implementation for response streaming and should not start until Step 3 fails for the expected `response.arrayBuffer()` reason.
+- Step 5 remains separate app-layer work for bounded JSON envelope reads; it should not be folded into Node adapter work.
 
 ### Step 3 - Red: add outbound streaming reproduction test
 
