@@ -470,7 +470,7 @@ Next-step reassessment:
 
 ### Step 6 - Green: add bounded JSON envelope body reader
 
-Status: pending
+Status: completed
 
 Scope:
 
@@ -492,6 +492,39 @@ Verify:
 npm test -- proxy-fetch-json-envelope
 npm test -- proxy-fetch-wire-compatibility
 ```
+
+Verify result:
+
+```txt
+npm test -- proxy-fetch-json-envelope
+Test Suites: 1 passed, 1 total
+Tests: 32 passed, 32 total
+
+npm test -- gateway-plan-flow
+Test Suites: 1 passed, 1 total
+Tests: 10 passed, 10 total
+
+npm test -- proxy-fetch-wire-compatibility
+Test Suites: 1 passed, 1 total
+Tests: 3 passed, 3 total
+
+npm run typecheck
+tsc --noEmit passed
+```
+
+Implemented:
+
+- `ProxyFetchJsonEnvelopeParser` now accepts the same body buffering policy shape as multipart parsing.
+- `ProxyFetchEnvelopeParser` passes the configured body buffering policy to both JSON and multipart parsers.
+- JSON service envelopes are read through the bounded request body reader before UTF-8 decoding and `JSON.parse`.
+- The shared bounded reader now emits format-specific limit messages, preserving the existing multipart message and adding `JSON request body exceeded ...`.
+- Gateway-level oversized JSON requests now fail as `INVALID_PROXY_FETCH_REQUEST` before planning, provider acquire, or target transport execution.
+
+Next-step reassessment:
+
+- Step 7 is still clear and testable: prove client abort propagates while a streamed inbound body is being read.
+- Step 8 remains a regression pass after Step 7, focused on preserving raw JSON/multipart compatibility across the Node adapter.
+- Step 9 remains the final full verification gate; no nested `AGENTS.md` updates are needed from Step 6 because envelope ownership rules were already present.
 
 ### Step 7 - Red/Green: abort propagation during streaming inbound request
 
