@@ -51,17 +51,32 @@ export interface ServiceError {
 
 export class ProxyFetchJsonEnvelopeParser {
   readonly #normalizer = new GatewayRequestNormalizer();
+  readonly #policy: BodyBufferingPolicy;
+
+  constructor(bodyBuffering: Partial<BodyBufferingPolicy> = {}) {
+    this.#policy = {
+      ...DEFAULT_BODY_BUFFERING_POLICY,
+      ...bodyBuffering,
+    };
+  }
 
   async parse(request: Request): Promise<ParsedProxyFetchRequest> {
-    return parseJsonEnvelope(parseJsonObject(await request.text()), this.#normalizer);
+    const bodyBytes = await readRequestBodyWithLimit(
+      request,
+      this.#policy.maxBufferedRequestBodyBytes,
+      'JSON',
+    );
+
+    return parseJsonEnvelope(parseJsonObject(Buffer.from(bodyBytes).toString('utf8')), this.#normalizer);
   }
 }
 
 export class ProxyFetchEnvelopeParser {
-  readonly #jsonParser = new ProxyFetchJsonEnvelopeParser();
+  readonly #jsonParser: ProxyFetchJsonEnvelopeParser;
   readonly #multipartParser: ProxyFetchMultipartEnvelopeParser;
 
   constructor(bodyBuffering: Partial<BodyBufferingPolicy> = {}) {
+    this.#jsonParser = new ProxyFetchJsonEnvelopeParser(bodyBuffering);
     this.#multipartParser = new ProxyFetchMultipartEnvelopeParser(bodyBuffering);
   }
 
@@ -92,7 +107,11 @@ export class ProxyFetchMultipartEnvelopeParser {
 
   async parse(request: Request, contentType = request.headers.get(CONTENT_TYPE_HEADER_NAME) ?? ''): Promise<ParsedProxyFetchRequest> {
     const boundary = readMultipartBoundary(contentType);
-    const bodyBytes = await readRequestBodyWithLimit(request, this.#policy.maxBufferedRequestBodyBytes);
+    const bodyBytes = await readRequestBodyWithLimit(
+      request,
+      this.#policy.maxBufferedRequestBodyBytes,
+      'Multipart',
+    );
     const parts = parseMultipartParts(bodyBytes, boundary);
 
     if (parts.length !== 2) {
@@ -444,7 +463,11 @@ interface MultipartPart {
   name: string;
 }
 
-async function readRequestBodyWithLimit(request: Request, limitBytes: number): Promise<Uint8Array> {
+async function readRequestBodyWithLimit(
+  request: Request,
+  limitBytes: number,
+  bodyKind: 'JSON' | 'Multipart',
+): Promise<Uint8Array> {
   if (request.body === null) {
     return new Uint8Array(await request.arrayBuffer());
   }
@@ -464,7 +487,7 @@ async function readRequestBodyWithLimit(request: Request, limitBytes: number): P
     sizeBytes += next.value.byteLength;
 
     if (sizeBytes > limitBytes) {
-      throw new Error(`Multipart request body exceeded ${limitBytes} bytes.`);
+      throw new Error(`${bodyKind} request body exceeded ${limitBytes} bytes.`);
     }
   }
 }

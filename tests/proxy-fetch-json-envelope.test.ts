@@ -364,6 +364,30 @@ describe('ProxyFetchEnvelopeParser multipart dispatch', () => {
     ).rejects.toThrow('Multipart request body exceeded 20 bytes.');
   });
 
+  it('enforces the configured JSON request body limit while reading', async () => {
+    const limitedParser = new ProxyFetchEnvelopeParser({
+      maxBufferedRequestBodyBytes: 80,
+    });
+
+    await expect(
+      limitedParser.parse(
+        jsonRequest({
+          context: {
+            metadata: {
+              padding: 'x'.repeat(128),
+            },
+          },
+          request: {
+            body: null,
+            method: 'GET',
+            url: 'https://example.com/json',
+          },
+          version: WIRE_PROTOCOL_VERSION,
+        }),
+      ),
+    ).rejects.toThrow('JSON request body exceeded 80 bytes.');
+  });
+
   it('dispatches JSON requests unchanged and rejects unsupported content types', async () => {
     const parsed = await envelopeParser.parse(
       jsonRequest({

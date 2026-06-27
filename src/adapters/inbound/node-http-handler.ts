@@ -1,4 +1,6 @@
+import { once } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
 
 import type { ProxyGateway } from '../../ports/inbound';
 
@@ -9,7 +11,7 @@ export interface NodeHttpHandler {
 export function createNodeHttpHandler(gateway: ProxyGateway): NodeHttpHandler {
   return async (incomingMessage, serverResponse) => {
     try {
-      const request = await createRequest(incomingMessage);
+      const request = createRequest(incomingMessage);
       const response = await gateway.handle(request);
 
       await writeResponse(serverResponse, response);
@@ -19,18 +21,27 @@ export function createNodeHttpHandler(gateway: ProxyGateway): NodeHttpHandler {
   };
 }
 
-async function createRequest(incomingMessage: IncomingMessage): Promise<Request> {
+interface IRequestInitWithDuplex extends RequestInit {
+  duplex?: 'half';
+}
+
+function createRequest(incomingMessage: IncomingMessage): Request {
   const method = incomingMessage.method ?? 'GET';
   const body = hasRequestBody(method)
-    ? await readIncomingMessageBody(incomingMessage)
+    ? createRequestBodyStream(incomingMessage)
     : undefined;
-
-  return new Request(createRequestUrl(incomingMessage), {
-    ...(body !== undefined && { body: new Blob([copyToArrayBuffer(body)]) }),
+  const init: IRequestInitWithDuplex = {
     headers: createHeaders(incomingMessage),
     method,
     signal: createAbortSignal(incomingMessage),
-  });
+  };
+
+  if (body !== undefined) {
+    init.body = body;
+    init.duplex = 'half';
+  }
+
+  return new Request(createRequestUrl(incomingMessage), init);
 }
 
 function createRequestUrl(incomingMessage: IncomingMessage): string {
@@ -64,9 +75,15 @@ function createHeaders(incomingMessage: IncomingMessage): Headers {
 
 function createAbortSignal(incomingMessage: IncomingMessage): AbortSignal {
   const abortController = new AbortController();
-
-  incomingMessage.once('aborted', () => {
+  const abort = (): void => {
     abortController.abort();
+  };
+
+  incomingMessage.once('aborted', abort);
+  incomingMessage.once('close', () => {
+    if (!incomingMessage.complete) {
+      abort();
+    }
   });
 
   return abortController.signal;
@@ -78,14 +95,26 @@ function hasRequestBody(method: string): boolean {
   return normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD';
 }
 
-async function readIncomingMessageBody(incomingMessage: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
+function createRequestBodyStream(incomingMessage: IncomingMessage): ReadableStream<Uint8Array> {
+  const reader = Readable.toWeb(incomingMessage).getReader();
 
-  for await (const chunk of incomingMessage) {
-    chunks.push(toBuffer(chunk));
-  }
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.read();
 
-  return Buffer.concat(chunks);
+      if (next.done) {
+        reader.releaseLock();
+        controller.close();
+
+        return;
+      }
+
+      controller.enqueue(toBuffer(next.value));
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
 }
 
 function toBuffer(value: unknown): Buffer {
@@ -102,21 +131,42 @@ function toBuffer(value: unknown): Buffer {
   throw new TypeError('Unsupported request body chunk.');
 }
 
-function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength);
-
-  copy.set(bytes);
-
-  return copy.buffer;
-}
-
 async function writeResponse(serverResponse: ServerResponse, response: Response): Promise<void> {
   serverResponse.statusCode = response.status;
   response.headers.forEach((value, name) => {
     serverResponse.setHeader(name, value);
   });
 
-  serverResponse.end(Buffer.from(await response.arrayBuffer()));
+  if (response.body === null) {
+    serverResponse.end();
+
+    return;
+  }
+
+  const reader = response.body.getReader();
+
+  try {
+    while (true) {
+      const next = await reader.read();
+
+      if (next.done) {
+        serverResponse.end();
+
+        return;
+      }
+      if (!serverResponse.write(next.value)) {
+        await once(serverResponse, 'drain');
+      }
+    }
+  } catch (error) {
+    serverResponse.destroy(toError(error));
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error('Node HTTP response streaming failed.');
 }
 
 function writeInternalError(serverResponse: ServerResponse): void {

@@ -1,6 +1,10 @@
+import { createServer, request as createHttpRequest, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  createNodeHttpHandler,
   JSON_CONTENT_TYPE,
   WIRE_PROTOCOL_VERSION,
 } from '../src';
@@ -13,6 +17,178 @@ runInboundAdapterContractSuite({
 });
 
 describe('createNodeHttpHandler', () => {
+  it('delegates to the gateway before the full inbound body is received', async () => {
+    const handleCalled = createDeferred<void>();
+    const responseReceived = createDeferred<void>();
+    const server = createServer(createNodeHttpHandler({
+      handle: async () => {
+        handleCalled.resolve(undefined);
+
+        return new Response('ok');
+      },
+    }));
+
+    await listen(server);
+
+    const address = readAddressInfo(server);
+    const request = createHttpRequest({
+      headers: {
+        'content-type': JSON_CONTENT_TYPE,
+        'transfer-encoding': 'chunked',
+      },
+      host: '127.0.0.1',
+      method: 'POST',
+      path: '/proxy',
+      port: address.port,
+    }, (response) => {
+      response.resume();
+      response.once('end', () => {
+        responseReceived.resolve(undefined);
+      });
+      response.once('error', responseReceived.reject);
+    });
+
+    request.once('error', responseReceived.reject);
+
+    try {
+      request.write('{"partial":');
+
+      await expect(
+        withTimeout(handleCalled.promise, 100, 'Gateway handle was not called before request end.'),
+      ).resolves.toBeUndefined();
+    } finally {
+      request.end('"done"}');
+      await withTimeout(responseReceived.promise, 1_000, 'Node HTTP response was not received during cleanup.')
+        .catch(() => undefined);
+      await close(server);
+    }
+  });
+
+  it('aborts the Web Request signal and settles the streaming body when the client aborts', async () => {
+    const finishGateway = createDeferred<void>();
+    const handleCalled = createDeferred<void>();
+    const signalAborted = createDeferred<void>();
+    const bodyReadSettled = createDeferred<void>();
+    const server = createServer(createNodeHttpHandler({
+      handle: async (request) => {
+        handleCalled.resolve(undefined);
+
+        if (request.signal.aborted) {
+          signalAborted.resolve(undefined);
+        } else {
+          request.signal.addEventListener('abort', () => {
+            signalAborted.resolve(undefined);
+          }, { once: true });
+        }
+
+        void request.text().then(
+          () => {
+            bodyReadSettled.resolve(undefined);
+          },
+          () => {
+            bodyReadSettled.resolve(undefined);
+          },
+        );
+
+        await finishGateway.promise;
+
+        return new Response('ok');
+      },
+    }));
+
+    await listen(server);
+
+    const address = readAddressInfo(server);
+    const request = createHttpRequest({
+      headers: {
+        'content-type': JSON_CONTENT_TYPE,
+        'transfer-encoding': 'chunked',
+      },
+      host: '127.0.0.1',
+      method: 'POST',
+      path: '/proxy',
+      port: address.port,
+    });
+
+    request.once('error', () => undefined);
+
+    try {
+      request.write('{"partial":');
+
+      await expect(
+        withTimeout(handleCalled.promise, 100, 'Gateway handle was not called before request abort.'),
+      ).resolves.toBeUndefined();
+
+      request.destroy();
+
+      await expect(
+        withTimeout(signalAborted.promise, 500, 'Web Request signal was not aborted after client abort.'),
+      ).resolves.toBeUndefined();
+      await expect(
+        withTimeout(bodyReadSettled.promise, 500, 'Streaming request body did not settle after client abort.'),
+      ).resolves.toBeUndefined();
+    } finally {
+      finishGateway.resolve(undefined);
+      request.destroy();
+      await close(server);
+    }
+  });
+
+  it('streams response chunks to the Node client before the Web Response body closes', async () => {
+    const releaseSecondChunk = createDeferred<void>();
+    const firstChunkReceived = createDeferred<string>();
+    const responseReceived = createDeferred<string>();
+    const encoder = new TextEncoder();
+    const server = createServer(createNodeHttpHandler({
+      handle: async () => new Response(new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode('chunk-1'));
+          await releaseSecondChunk.promise;
+          controller.enqueue(encoder.encode('chunk-2'));
+          controller.close();
+        },
+      })),
+    }));
+
+    await listen(server);
+
+    const address = readAddressInfo(server);
+    const chunks: string[] = [];
+    const request = createHttpRequest({
+      host: '127.0.0.1',
+      method: 'GET',
+      path: '/proxy',
+      port: address.port,
+    }, (response) => {
+      response.on('data', (chunk: unknown) => {
+        chunks.push(readResponseChunkText(chunk));
+
+        if (chunks.join('').includes('chunk-1')) {
+          firstChunkReceived.resolve(chunks.join(''));
+        }
+      });
+      response.once('end', () => {
+        responseReceived.resolve(chunks.join(''));
+      });
+      response.once('error', responseReceived.reject);
+    });
+
+    request.once('error', responseReceived.reject);
+
+    try {
+      request.end();
+
+      await expect(
+        withTimeout(firstChunkReceived.promise, 100, 'First response chunk was not streamed before body close.'),
+      ).resolves.toContain('chunk-1');
+    } finally {
+      releaseSecondChunk.resolve(undefined);
+      await withTimeout(responseReceived.promise, 1_000, 'Node HTTP response was not received during cleanup.')
+        .catch(() => undefined);
+      await close(server);
+    }
+  });
+
   it('converts Node request URL method headers and raw body into a Web Request', async () => {
     let observedUrl = '';
     let observedMethod = '';
@@ -55,3 +231,99 @@ describe('createNodeHttpHandler', () => {
     expect(observedBody).toBe('{"raw":true}');
   });
 });
+
+interface IDeferred<T> {
+  promise: Promise<T>;
+  reject(reason?: unknown): void;
+  resolve(value: T | PromiseLike<T>): void;
+}
+
+function createDeferred<T>(): IDeferred<T> {
+  let resolveDeferred: ((value: T | PromiseLike<T>) => void) | undefined;
+  let rejectDeferred: ((reason?: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+
+  if (resolveDeferred === undefined || rejectDeferred === undefined) {
+    throw new Error('Expected deferred callbacks to be initialized.');
+  }
+
+  return {
+    promise,
+    reject: rejectDeferred,
+    resolve: resolveDeferred,
+  };
+}
+
+function listen(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error !== undefined) {
+        reject(error);
+
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+function readAddressInfo(server: Server): AddressInfo {
+  const address = server.address();
+
+  if (!isAddressInfo(address)) {
+    throw new Error('Expected server address info.');
+  }
+
+  return address;
+}
+
+function isAddressInfo(value: string | AddressInfo | null): value is AddressInfo {
+  return typeof value === 'object' && value !== null;
+}
+
+function readResponseChunkText(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf8');
+  }
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value).toString('utf8');
+  }
+
+  throw new TypeError('Unsupported response chunk.');
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}

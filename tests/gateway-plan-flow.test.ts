@@ -393,6 +393,50 @@ describe('gateway planner-owned direct flow', () => {
     expect(capabilityCalls).toBe(0);
   });
 
+  it('returns a stable service error when the JSON service request exceeds the configured body limit', async () => {
+    let transportCalls = 0;
+    const gateway = createProxyGateway({
+      bodyBuffering: {
+        bufferRequestStreamsForRetry: true,
+        bufferResponsesBeforeReturn: true,
+        maxBufferedRequestBodyBytes: 80,
+        maxBufferedResponseBodyBytes: 1024,
+        rejectWhenRequestBufferExceeded: false,
+        rejectWhenResponseBufferExceeded: false,
+      },
+      plan: {
+        attempts: [
+          {
+            provider: 'provider-a',
+          },
+        ],
+        kind: PROXY_PLAN_KIND.FALLBACK,
+      },
+      providers: [
+        provider('provider-a', []),
+      ],
+      transport: {
+        execute: async () => {
+          transportCalls += 1;
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const response = await gateway.handle(oversizedProxyFetchJsonRequest());
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: RESPONSE_CODE.INVALID_PROXY_FETCH_REQUEST,
+        message: 'JSON request body exceeded 80 bytes.',
+      },
+      ok: false,
+      version: WIRE_PROTOCOL_VERSION,
+    });
+    expect(transportCalls).toBe(0);
+  });
+
   it('does not retry unsafe POST without an idempotency key through the gateway', async () => {
     const acquiredProviderIds: string[] = [];
     let transportCalls = 0;
@@ -549,6 +593,29 @@ function proxyFetchJsonRequest(options: IProxyFetchJsonRequestOptions = {}): Req
         body: options.body ?? null,
         headers: options.headers ?? [],
         method,
+        url: 'https://example.com/resource',
+      },
+      version: WIRE_PROTOCOL_VERSION,
+    }),
+    headers: {
+      'content-type': 'application/json',
+    },
+    method: 'POST',
+  });
+}
+
+function oversizedProxyFetchJsonRequest(): Request {
+  return new Request('https://gateway.test/proxy', {
+    body: JSON.stringify({
+      context: {
+        metadata: {
+          padding: 'x'.repeat(128),
+        },
+      },
+      request: {
+        body: null,
+        headers: [],
+        method: 'GET',
         url: 'https://example.com/resource',
       },
       version: WIRE_PROTOCOL_VERSION,
