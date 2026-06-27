@@ -133,7 +133,7 @@ function createGateway() {
       maxBufferedRequestBodyBytes: 4096,
       maxBufferedResponseBodyBytes: 25 * 1024 * 1024,
       rejectWhenRequestBufferExceeded: false,
-      rejectWhenResponseBufferExceeded: false,
+      rejectWhenResponseBufferExceeded: true,
     },
     defaultRoute: {
       id: 'gateway-policy-default',
@@ -323,6 +323,17 @@ function createGateway() {
           path: {
             type: STRING_MATCHER_KIND.PREFIX,
             value: '/unsafe',
+          },
+        },
+      },
+      {
+        id: 'buffering-limit-request-non-replayable',
+        plan: retryFallbackPlan(),
+        when: {
+          host: 'buffering-limit.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/request-non-replayable',
           },
         },
       },
@@ -636,6 +647,12 @@ function createTransport() {
         return specialResponse;
       }
 
+      const bufferingLimitResponse = createBufferingLimitTargetResponse(mode);
+
+      if (bufferingLimitResponse !== undefined) {
+        return bufferingLimitResponse;
+      }
+
       const providerResponse = await fetch(`${providerBaseUrl}/execute`, {
         body: JSON.stringify({
           mode,
@@ -690,6 +707,7 @@ function shouldFailPrimaryFallback(mode, providerId) {
       || mode === 'retry-fallback-non-replayable'
       || mode === 'retry-fallback-replayable'
       || mode === 'retry-fallback-unsafe'
+      || mode === 'buffering-limit-request-non-replayable'
     )
   );
 }
@@ -732,6 +750,47 @@ function createSpecialTargetResponse(mode) {
     type: mode.replace('special-', ''),
     url: '',
   };
+}
+
+function createBufferingLimitTargetResponse(mode) {
+  if (mode !== 'buffering-limit-response') {
+    return undefined;
+  }
+
+  const sizeBytes = (25 * 1024 * 1024) + 1;
+
+  return {
+    body: {
+      kind: 'stream',
+      replayability: 'non-replayable',
+      sizeBytes,
+      stream: createByteStream(sizeBytes),
+    },
+    headers: [['content-type', 'application/octet-stream']],
+    redirected: false,
+    status: 200,
+    statusText: 'OK',
+    type: 'basic',
+    url: 'https://buffering-limit.policy.example.com/response',
+  };
+}
+
+function createByteStream(sizeBytes) {
+  let remainingBytes = sizeBytes;
+
+  return new ReadableStream({
+    pull(controller) {
+      if (remainingBytes <= 0) {
+        controller.close();
+        return;
+      }
+
+      const chunkSize = Math.min(remainingBytes, 64 * 1024);
+
+      remainingBytes -= chunkSize;
+      controller.enqueue(new Uint8Array(chunkSize));
+    },
+  });
 }
 
 function serializeTargetBody(body) {

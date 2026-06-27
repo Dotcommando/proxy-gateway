@@ -1685,12 +1685,13 @@ Next three steps reassessment:
   observations added in Steps 14-16 for request ids, providers, and target
   headers.
 
-### 17. Add Buffering Limit Tests
+### 17. Add Buffering Limit Tests - Completed
 
 Red:
 
 - Add failing scenarios for:
-  - request buffering limit before provider execution;
+  - multipart service-envelope parser limit before gateway planning;
+  - JSON-base64 target body buffering limit before provider execution;
   - response buffering limit while building the service response;
   - retry disabled when the request body cannot be replayed safely after
     buffering decisions.
@@ -1699,6 +1700,11 @@ Green:
 
 - Configure small e2e-only buffering limits in a narrow gateway fixture path.
 - Add deterministic request and response body modes that exceed those limits.
+- Assert multipart over-limit requests fail before provider acquisition and
+  before transport execution.
+- Assert JSON-base64 over-limit target bodies reach planning and become
+  `non-replayable` or stable buffering-limit service errors according to the
+  configured policy.
 - Assert stable service errors and provider observation counts.
 
 Verify:
@@ -1707,6 +1713,35 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern buffering-limit"
 ```
+
+Progress:
+
+- Added `buffering-limit.test.mjs` in the microservice consumer.
+- Configured e2e-only gateway buffering limits so request streams above 4096
+  bytes become non-replayable and response streams above 25 MiB fail while
+  building the service response.
+- Verified oversized multipart service requests fail before provider
+  acquisition, transport execution, and mock-provider execution.
+- Verified oversized JSON-base64 target bodies reach planning, are observed as
+  `non-replayable`, and stop fallback after the primary attempt fails.
+- Verified oversized gateway-generated target responses produce stable service
+  errors and do not call the mock-provider.
+- Updated `e2e/local-registry/AGENTS.md` with the response buffering-limit
+  fixture rule.
+- Verified the focused `buffering-limit` compose path after starting
+  `micro-provider` and `micro-gateway`.
+
+Next three steps reassessment:
+
+- Step 18 should reuse the Step 17 gateway-generated stream pattern for total
+  timeout and attempt timeout where the boundary is inside the gateway, and the
+  mock-provider slow mode only where the boundary is provider passthrough.
+- Step 19 remains ready, but redaction assertions should include buffering and
+  fallback service-error details now that those paths emit deterministic
+  provider acquire/release observations.
+- Step 20 remains ready and should stay separate from buffering-limit coverage:
+  live endpoint assertions should not depend on large bodies, large streams, or
+  retry/fallback policy behavior.
 
 ### 18. Add Timeout And Abort Tests
 

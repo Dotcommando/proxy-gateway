@@ -47,6 +47,7 @@ Rules:
 - Gateway policy tests should use declarative `defaultRoute`, `routes`, and `pipelines` config and assert selected route, pipeline, provider, requirements, and fallback sequence through e2e observations instead of package internals.
 - Sticky session and parallel microservice tests should correlate gateway and mock-provider observations by gateway `requestId`; assert isolation through context fields that `@echospecter/proxy-fetch` actually serializes, and use target-host isolation when tenant or route keys are not present at the client boundary.
 - Retry/fallback replayability tests should keep parser-limit failures separate from target-body replayability decisions; use JSON base64 transport when a large binary target body must reach gateway planning and become `non-replayable`.
+- Response buffering-limit tests should use deterministic gateway-generated streams and assert the mock-provider is not called, so they cover service-response buffering rather than provider passthrough behavior.
 ```
 
 Consumer test coverage should include:
