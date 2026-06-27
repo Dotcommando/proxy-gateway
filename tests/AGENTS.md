@@ -46,3 +46,5 @@ npm run pack:check
 ```
 
 When package consumption or public install behavior changes, also run the local registry e2e flow under `e2e/local-registry`.
+
+The full microservice e2e lab uses Docker, Verdaccio, and live public network endpoints. Keep it outside default `npm test`; run it explicitly with `npm run test:e2e:microservices` when validating the package-consumption gateway flow.
