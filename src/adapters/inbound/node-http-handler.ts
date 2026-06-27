@@ -75,9 +75,15 @@ function createHeaders(incomingMessage: IncomingMessage): Headers {
 
 function createAbortSignal(incomingMessage: IncomingMessage): AbortSignal {
   const abortController = new AbortController();
-
-  incomingMessage.once('aborted', () => {
+  const abort = (): void => {
     abortController.abort();
+  };
+
+  incomingMessage.once('aborted', abort);
+  incomingMessage.once('close', () => {
+    if (!incomingMessage.complete) {
+      abort();
+    }
   });
 
   return abortController.signal;

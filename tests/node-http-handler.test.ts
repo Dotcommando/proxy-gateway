@@ -64,6 +64,76 @@ describe('createNodeHttpHandler', () => {
     }
   });
 
+  it('aborts the Web Request signal and settles the streaming body when the client aborts', async () => {
+    const finishGateway = createDeferred<void>();
+    const handleCalled = createDeferred<void>();
+    const signalAborted = createDeferred<void>();
+    const bodyReadSettled = createDeferred<void>();
+    const server = createServer(createNodeHttpHandler({
+      handle: async (request) => {
+        handleCalled.resolve(undefined);
+
+        if (request.signal.aborted) {
+          signalAborted.resolve(undefined);
+        } else {
+          request.signal.addEventListener('abort', () => {
+            signalAborted.resolve(undefined);
+          }, { once: true });
+        }
+
+        void request.text().then(
+          () => {
+            bodyReadSettled.resolve(undefined);
+          },
+          () => {
+            bodyReadSettled.resolve(undefined);
+          },
+        );
+
+        await finishGateway.promise;
+
+        return new Response('ok');
+      },
+    }));
+
+    await listen(server);
+
+    const address = readAddressInfo(server);
+    const request = createHttpRequest({
+      headers: {
+        'content-type': JSON_CONTENT_TYPE,
+        'transfer-encoding': 'chunked',
+      },
+      host: '127.0.0.1',
+      method: 'POST',
+      path: '/proxy',
+      port: address.port,
+    });
+
+    request.once('error', () => undefined);
+
+    try {
+      request.write('{"partial":');
+
+      await expect(
+        withTimeout(handleCalled.promise, 100, 'Gateway handle was not called before request abort.'),
+      ).resolves.toBeUndefined();
+
+      request.destroy();
+
+      await expect(
+        withTimeout(signalAborted.promise, 500, 'Web Request signal was not aborted after client abort.'),
+      ).resolves.toBeUndefined();
+      await expect(
+        withTimeout(bodyReadSettled.promise, 500, 'Streaming request body did not settle after client abort.'),
+      ).resolves.toBeUndefined();
+    } finally {
+      finishGateway.resolve(undefined);
+      request.destroy();
+      await close(server);
+    }
+  });
+
   it('streams response chunks to the Node client before the Web Response body closes', async () => {
     const releaseSecondChunk = createDeferred<void>();
     const firstChunkReceived = createDeferred<string>();

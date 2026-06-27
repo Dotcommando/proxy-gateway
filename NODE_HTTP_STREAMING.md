@@ -528,7 +528,7 @@ Next-step reassessment:
 
 ### Step 7 - Red/Green: abort propagation during streaming inbound request
 
-Status: pending
+Status: completed
 
 Scope:
 
@@ -550,6 +550,33 @@ Verify:
 npm test -- node-http-handler
 npm test -- timeout-controller
 ```
+
+Verify result:
+
+```txt
+npm test -- node-http-handler
+Test Suites: 2 passed, 2 total
+Tests: 20 passed, 20 total
+
+npm test -- timeout-controller
+Test Suites: 1 passed, 1 total
+Tests: 6 passed, 6 total
+
+npm run typecheck
+tsc --noEmit passed
+```
+
+Implemented:
+
+- Added a Node HTTP handler test that starts reading the streamed Web `Request.body`, aborts the client request mid-body, and verifies both the Web `Request.signal` and body reader settle.
+- The initial Red showed the Web `Request.signal` was not aborted after client abort in this streaming scenario.
+- `createAbortSignal()` now treats `IncomingMessage` `close` with `complete === false` as caller abort, while preserving normal completed request behavior.
+
+Next-step reassessment:
+
+- Step 8 is still clear and should run the existing adapter and wire compatibility regression suites before final verification.
+- Step 9 remains the full final gate after Step 8.
+- No nested `AGENTS.md` update is needed; this reinforces the existing inbound adapter abort propagation contract.
 
 ### Step 8 - Regression: preserve raw JSON and multipart compatibility
 
