@@ -1743,7 +1743,7 @@ Next three steps reassessment:
   live endpoint assertions should not depend on large bodies, large streams, or
   retry/fallback policy behavior.
 
-### 18. Add Timeout And Abort Tests
+### 18. Add Timeout And Abort Tests - Completed
 
 Red:
 
@@ -1765,6 +1765,41 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern timeout-abort"
 ```
+
+Progress:
+
+- Added `timeout-abort.test.mjs` in the microservice consumer.
+- Verified local `proxy-fetch` timeout cancels a streaming upload before
+  gateway planning, leaving gateway and mock-provider observations empty.
+- Verified caller `AbortSignal` cancels a streaming upload before gateway
+  planning, leaving gateway and mock-provider observations empty.
+- Verified serialized gateway `timeoutMs` stops a primary attempt without
+  fallback; through `@echospecter/proxy-fetch` this currently surfaces as
+  `SERVICE_HTTP_ERROR` with service HTTP status `504`.
+- Added deterministic timeout-abort gateway pipeline fixtures and
+  gateway-generated delayed target responses.
+- Fixed `AttemptExecutor` so a planned attempt's `timeoutMs` overrides the
+  gateway default attempt timeout for that attempt.
+- Added a focused unit regression for planned attempt timeout precedence.
+- Verified per-attempt timeout can fallback when retry policy allows it.
+- Updated `src/app/use-cases/AGENTS.md` and `e2e/local-registry/AGENTS.md`
+  with durable timeout rules introduced by this step.
+- Reset and republished the package to local Verdaccio before the focused e2e
+  run so micro-gateway installed the updated tarball.
+- Verified the focused `timeout-abort` compose path after starting
+  `micro-provider` and `micro-gateway`.
+
+Next three steps reassessment:
+
+- Step 19 should assert service error redaction across both envelope-level
+  service errors and service HTTP errors, since Step 18 confirmed gateway
+  timeout reaches `@echospecter/proxy-fetch` as HTTP 504 `SERVICE_HTTP_ERROR`.
+- Step 20 remains ready, but live endpoint tests should avoid relying on
+  timeout/error code mapping; keep them focused on successful real passthrough
+  and explicitly documented flake-tolerant upstream handling.
+- Step 21 should document that microservice e2e runs requiring unpublished core
+  changes must reset Verdaccio and republish `@echospecter/proxy-gateway`
+  before starting `micro-gateway`.
 
 ### 19. Add Error Boundary, Target Access, And Redaction Tests
 

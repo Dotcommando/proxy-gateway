@@ -337,6 +337,60 @@ function createGateway() {
           },
         },
       },
+      {
+        id: 'timeout-abort-local',
+        plan: timeoutAbortFallbackPlan({
+          pipelineId: 'timeout-abort',
+        }),
+        when: {
+          host: 'timeout-abort.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/local',
+          },
+        },
+      },
+      {
+        id: 'timeout-abort-total',
+        plan: timeoutAbortFallbackPlan({
+          pipelineId: 'timeout-abort',
+        }),
+        when: {
+          host: 'timeout-abort.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/total',
+          },
+        },
+      },
+      {
+        id: 'timeout-abort-caller',
+        plan: timeoutAbortFallbackPlan({
+          pipelineId: 'timeout-abort',
+        }),
+        when: {
+          host: 'timeout-abort.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/caller',
+          },
+        },
+      },
+      {
+        id: 'timeout-abort-attempt',
+        plan: timeoutAbortFallbackPlan({
+          pipelineId: 'timeout-abort',
+          primaryTimeoutMs: 75,
+          retryOn: [RETRY_CONDITION.TARGET_TIMEOUT],
+        }),
+        when: {
+          host: 'timeout-abort.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/attempt',
+          },
+        },
+      },
     ],
     providers: createProviders(),
     routes: [
@@ -504,21 +558,36 @@ function fallbackPlan(provider, metadata = {}) {
 }
 
 function retryFallbackPlan() {
+  return timeoutAbortFallbackPlan({
+    retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+  });
+}
+
+function timeoutAbortFallbackPlan(options = {}) {
+  const pipelineId = options.pipelineId ?? 'retry-fallback';
+
   return [
     {
       args: {
         attempts: [
           {
             metadata: {
-              pipelineId: 'retry-fallback',
+              pipelineId,
               policyAttemptId: 'primary',
             },
             provider: 'fallback-primary-provider',
-            retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+            retryOn: options.retryOn ?? [
+              RETRY_CONDITION.GATEWAY_TIMEOUT,
+              RETRY_CONDITION.TARGET_NETWORK_ERROR,
+              RETRY_CONDITION.TARGET_TIMEOUT,
+            ],
+            ...(options.primaryTimeoutMs === undefined
+              ? {}
+              : { timeoutMs: options.primaryTimeoutMs }),
           },
           {
             metadata: {
-              pipelineId: 'retry-fallback',
+              pipelineId,
               policyAttemptId: 'secondary',
             },
             provider: 'fallback-secondary-provider',
@@ -586,6 +655,12 @@ function policyObservationForProvider(id, targetUrl) {
           policyPipelineId: 'retry-fallback',
         };
       }
+      if (isTimeoutAbortTarget(targetUrl)) {
+        return {
+          policyAttemptId: 'primary',
+          policyPipelineId: 'timeout-abort',
+        };
+      }
 
       return {
         policyAttemptId: 'primary',
@@ -596,6 +671,12 @@ function policyObservationForProvider(id, targetUrl) {
         return {
           policyAttemptId: 'secondary',
           policyPipelineId: 'retry-fallback',
+        };
+      }
+      if (isTimeoutAbortTarget(targetUrl)) {
+        return {
+          policyAttemptId: 'secondary',
+          policyPipelineId: 'timeout-abort',
         };
       }
 
@@ -614,8 +695,16 @@ function policyObservationForProvider(id, targetUrl) {
 }
 
 function isRetryFallbackTarget(targetUrl) {
+  return isPolicyTarget(targetUrl, 'retry-fallback.policy.example.com');
+}
+
+function isTimeoutAbortTarget(targetUrl) {
+  return isPolicyTarget(targetUrl, 'timeout-abort.policy.example.com');
+}
+
+function isPolicyTarget(targetUrl, hostname) {
   try {
-    return new URL(targetUrl).hostname === 'retry-fallback.policy.example.com';
+    return new URL(targetUrl).hostname === hostname;
   } catch {
     return false;
   }
@@ -653,8 +742,15 @@ function createTransport() {
         return bufferingLimitResponse;
       }
 
+      const timeoutAbortResponse = await createTimeoutAbortTargetResponse(mode, input);
+
+      if (timeoutAbortResponse !== undefined) {
+        return timeoutAbortResponse;
+      }
+
       const providerResponse = await fetch(`${providerBaseUrl}/execute`, {
         body: JSON.stringify({
+          delayMs: readDelayMs(input.target.url),
           mode,
           requestId: input.requestId,
           target: {
@@ -716,6 +812,18 @@ function readMode(targetUrl) {
   return new URL(targetUrl).searchParams.get('mode') ?? 'text';
 }
 
+function readDelayMs(targetUrl) {
+  const value = new URL(targetUrl).searchParams.get('delayMs');
+
+  if (value === null) {
+    return undefined;
+  }
+
+  const delayMs = Number.parseInt(value, 10);
+
+  return Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : undefined;
+}
+
 function checkFinalUrl(input, response) {
   const location = response.headers.get('location');
 
@@ -773,6 +881,72 @@ function createBufferingLimitTargetResponse(mode) {
     type: 'basic',
     url: 'https://buffering-limit.policy.example.com/response',
   };
+}
+
+async function createTimeoutAbortTargetResponse(mode, input) {
+  if (
+    mode !== 'timeout-abort-gateway-delay'
+    && mode !== 'timeout-abort-attempt'
+  ) {
+    return undefined;
+  }
+
+  if (
+    mode === 'timeout-abort-attempt'
+    && input.route.providerInstanceId !== 'fallback-primary-provider'
+  ) {
+    return textTargetResponse(
+      input.target.url,
+      'attempt timeout fallback response',
+    );
+  }
+
+  await abortableDelay(readDelayMs(input.target.url) ?? 500, input.signal);
+
+  return textTargetResponse(input.target.url, 'timeout abort delayed response');
+}
+
+function textTargetResponse(url, text) {
+  return {
+    body: {
+      kind: 'text',
+      replayability: 'replayable',
+      text,
+    },
+    headers: [['content-type', 'text/plain; charset=utf-8']],
+    redirected: false,
+    status: 200,
+    statusText: 'OK',
+    type: 'basic',
+    url,
+  };
+}
+
+function abortableDelay(ms, signal) {
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason ?? new DOMException('Operation aborted.', 'AbortError'),
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener('abort', abort);
+    };
+    const timeout = setTimeout(() => {
+      finish();
+      resolve();
+    }, ms);
+    const abort = () => {
+      finish();
+      reject(signal.reason ?? new DOMException('Operation aborted.', 'AbortError'));
+    };
+
+    signal.addEventListener('abort', abort, {
+      once: true,
+    });
+  });
 }
 
 function createByteStream(sizeBytes) {

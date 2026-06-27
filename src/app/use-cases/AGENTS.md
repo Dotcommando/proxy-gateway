@@ -59,6 +59,8 @@ When retry/fallback is enabled, `AttemptExecutor` keeps retry-loop state but del
 
 Gateway events from earlier attempts must be accumulated and returned with the final executor result.
 
+A planned attempt's `timeoutMs` overrides the gateway default attempt timeout for that specific attempt. The default applies only when the planned attempt does not define its own timeout.
+
 ## Retry, Fallback, and Verification
 
 Same-attempt retry and fallback traversal must be driven by `RetryDecider`.

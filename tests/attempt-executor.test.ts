@@ -754,6 +754,78 @@ describe('AttemptExecutor', () => {
     ]);
   });
 
+  it('uses the planned attempt timeout before the default attempt timeout', async () => {
+    jest.useFakeTimers();
+
+    const acquiredProviderIds: string[] = [];
+    const releasedResults: ProxyAttemptResult[] = [];
+    let transportSignal: AbortSignal | undefined;
+    const executor = createExecutor({
+      providers: [
+        directProvider({
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease();
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+        directProvider({
+          id: 'provider-b',
+          acquire: async (input) => {
+            acquiredProviderIds.push(input.providerInstanceId);
+
+            return directLease({ providerInstanceId: 'provider-b' });
+          },
+          release: async (_lease, result) => {
+            releasedResults.push(result);
+          },
+        }),
+      ],
+      transport: {
+        execute: async () => {
+          if (acquiredProviderIds.length === 1) {
+            transportSignal = new AbortController().signal;
+
+            return neverSettlingOperation();
+          }
+
+          return okTargetResponse();
+        },
+      },
+    });
+    const resultPromise = executor.execute({
+      ...baseInput(),
+      attemptTimeoutMs: 1_000,
+      plan: plan([
+        {
+          providerInstanceId: 'provider-a',
+          providerKind: 'test-provider',
+          retryOn: [RETRY_CONDITION.TARGET_TIMEOUT],
+          timeoutMs: 10,
+        },
+        {
+          providerInstanceId: 'provider-b',
+          providerKind: 'test-provider',
+        },
+      ]),
+    });
+
+    await waitUntil(() => transportSignal !== undefined);
+    await jest.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+
+    expect(result.kind).toBe(ATTEMPT_EXECUTOR_RESULT_KIND.COMPLETED);
+    expect(acquiredProviderIds).toEqual(['provider-a', 'provider-b']);
+    expect(releasedResults.map((releasedResult) => releasedResult.outcome)).toEqual([
+      PROXY_ATTEMPT_RESULT_OUTCOME.TARGET_TIMEOUT,
+      PROXY_ATTEMPT_RESULT_OUTCOME.SUCCESS,
+    ]);
+  });
+
   it('verifies a lease after acquire and before target transport execution', async () => {
     const operations: string[] = [];
     let acquireSignal: AbortSignal | undefined;
