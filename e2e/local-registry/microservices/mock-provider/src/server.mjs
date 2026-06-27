@@ -88,6 +88,9 @@ async function execute(request, response) {
     case 'gateway-policy-fallback':
       writeText(response, 200, 'gateway policy fallback response');
       return;
+    case 'retry-fallback-replayable':
+      writeText(response, 200, 'retry fallback replayable response');
+      return;
     case 'json':
       writeJson(response, 200, {
         mode,

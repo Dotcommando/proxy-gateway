@@ -127,6 +127,14 @@ async function writePackageSource(response) {
 
 function createGateway() {
   return createProxyGateway({
+    bodyBuffering: {
+      bufferRequestStreamsForRetry: true,
+      bufferResponsesBeforeReturn: true,
+      maxBufferedRequestBodyBytes: 4096,
+      maxBufferedResponseBodyBytes: 25 * 1024 * 1024,
+      rejectWhenRequestBufferExceeded: false,
+      rejectWhenResponseBufferExceeded: false,
+    },
     defaultRoute: {
       id: 'gateway-policy-default',
       plan: fallbackPlan(providerInstanceId, {
@@ -285,6 +293,39 @@ function createGateway() {
           host: 'fallback.policy.example.com',
         },
       },
+      {
+        id: 'retry-fallback-replayable',
+        plan: retryFallbackPlan(),
+        when: {
+          host: 'retry-fallback.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/replayable',
+          },
+        },
+      },
+      {
+        id: 'retry-fallback-non-replayable',
+        plan: retryFallbackPlan(),
+        when: {
+          host: 'retry-fallback.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/non-replayable',
+          },
+        },
+      },
+      {
+        id: 'retry-fallback-unsafe',
+        plan: retryFallbackPlan(),
+        when: {
+          host: 'retry-fallback.policy.example.com',
+          path: {
+            type: STRING_MATCHER_KIND.PREFIX,
+            value: '/unsafe',
+          },
+        },
+      },
     ],
     providers: createProviders(),
     routes: [
@@ -396,7 +437,10 @@ function createProvider(id, options = {}) {
           attempt: input.attempt,
           context: input.context,
           planKind: PROXY_PLAN_KIND.FALLBACK,
-          ...policyObservationForProvider(input.providerInstanceId),
+          ...policyObservationForProvider(
+            input.providerInstanceId,
+            input.target.url,
+          ),
           requestId: input.requestId,
           requirements: input.requirements,
           routeKind: PROXY_ROUTE_KIND.DIRECT,
@@ -448,6 +492,33 @@ function fallbackPlan(provider, metadata = {}) {
   };
 }
 
+function retryFallbackPlan() {
+  return [
+    {
+      args: {
+        attempts: [
+          {
+            metadata: {
+              pipelineId: 'retry-fallback',
+              policyAttemptId: 'primary',
+            },
+            provider: 'fallback-primary-provider',
+            retryOn: [RETRY_CONDITION.TARGET_NETWORK_ERROR],
+          },
+          {
+            metadata: {
+              pipelineId: 'retry-fallback',
+              policyAttemptId: 'secondary',
+            },
+            provider: 'fallback-secondary-provider',
+          },
+        ],
+      },
+      use: PIPELINE_STEP_TYPE.PLAN_FALLBACK,
+    },
+  ];
+}
+
 function gbCapabilities() {
   return {
     geo: {
@@ -466,7 +537,7 @@ function stickySessionIdentity() {
   };
 }
 
-function policyObservationForProvider(id) {
+function policyObservationForProvider(id, targetUrl) {
   switch (id) {
     case providerInstanceId:
       return {
@@ -498,11 +569,25 @@ function policyObservationForProvider(id) {
         policyPipelineId: 'gateway-policy-gb',
       };
     case 'fallback-primary-provider':
+      if (isRetryFallbackTarget(targetUrl)) {
+        return {
+          policyAttemptId: 'primary',
+          policyPipelineId: 'retry-fallback',
+        };
+      }
+
       return {
         policyAttemptId: 'primary',
         policyPipelineId: 'gateway-policy-fallback',
       };
     case 'fallback-secondary-provider':
+      if (isRetryFallbackTarget(targetUrl)) {
+        return {
+          policyAttemptId: 'secondary',
+          policyPipelineId: 'retry-fallback',
+        };
+      }
+
       return {
         policyAttemptId: 'secondary',
         policyPipelineId: 'gateway-policy-fallback',
@@ -514,6 +599,14 @@ function policyObservationForProvider(id) {
       };
     default:
       return {};
+  }
+}
+
+function isRetryFallbackTarget(targetUrl) {
+  try {
+    return new URL(targetUrl).hostname === 'retry-fallback.policy.example.com';
+  } catch {
+    return false;
   }
 }
 
@@ -533,10 +626,7 @@ function createTransport() {
         type: 'transport-execute',
       });
 
-      if (
-        mode === 'gateway-policy-fallback'
-        && input.route.providerInstanceId === 'fallback-primary-provider'
-      ) {
+      if (shouldFailPrimaryFallback(mode, input.route.providerInstanceId)) {
         throw new Error('gateway policy fallback primary failure');
       }
 
@@ -590,6 +680,18 @@ function createTransport() {
       };
     },
   };
+}
+
+function shouldFailPrimaryFallback(mode, providerId) {
+  return (
+    providerId === 'fallback-primary-provider'
+    && (
+      mode === 'gateway-policy-fallback'
+      || mode === 'retry-fallback-non-replayable'
+      || mode === 'retry-fallback-replayable'
+      || mode === 'retry-fallback-unsafe'
+    )
+  );
 }
 
 function readMode(targetUrl) {

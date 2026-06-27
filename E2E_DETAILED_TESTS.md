@@ -1622,14 +1622,14 @@ Progress:
 
 Next three steps reassessment:
 
-- Step 16 can reuse the Step 14 fallback providers and the Step 15 request-id
-  correlation to assert replayable and non-replayable retry behavior.
+- Step 16 is completed below and reuses the Step 14 fallback providers plus
+  the Step 15 request-id correlation.
 - Step 17 remains separate and should configure narrow e2e-only buffering
   limits instead of mixing byte-limit behavior into retry/fallback assertions.
 - Step 18 should reuse the request-id observations from Step 15 to prove aborts
   stop later provider or fallback work.
 
-### 16. Add Retry, Fallback, And Replayability Tests
+### 16. Add Retry, Fallback, And Replayability Tests - Completed
 
 Red:
 
@@ -1646,6 +1646,9 @@ Green:
   for the first attempt and succeed on the second attempt.
 - Assert gateway release outcomes and provider observations for replayable and
   non-replayable bodies.
+- Use JSON base64 service transport for the large non-replayable body case so
+  the proxy-fetch multipart parser does not reject the service request before
+  gateway planning can mark the target body as `non-replayable`.
 
 Verify:
 
@@ -1653,6 +1656,34 @@ Verify:
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml up -d micro-provider micro-gateway
 docker compose -p proxy-gateway-micro-e2e -f e2e/local-registry/docker-compose.microservices.yml run --rm micro-consumer sh -lc "npm install --package-lock=false --no-audit --no-fund && npm run test:e2e -- --test-name-pattern retry-fallback"
 ```
+
+Progress:
+
+- Added `retry-fallback.test.mjs` in the microservice consumer.
+- Added retry/fallback pipelines in the micro-gateway for replayable fallback,
+  non-replayable retry prevention, and unsafe POST retry prevention.
+- Reused `fallback-primary-provider` and `fallback-secondary-provider` from
+  Step 14, with deterministic primary transport failure before target/provider
+  execution.
+- Verified replayable body preservation across fallback by asserting the
+  secondary provider receives the original target body.
+- Verified large JSON-base64 binary bodies exceed the e2e request buffering
+  threshold, become `non-replayable`, and stop before the secondary attempt.
+- Verified unsafe POST stops after the primary attempt without explicit unsafe
+  retry allowance.
+- Verified the focused `retry-fallback` compose path after starting
+  `micro-provider` and `micro-gateway`.
+
+Next three steps reassessment:
+
+- Step 17 should distinguish service-envelope parser limits from target body
+  buffering limits. Multipart over-limit requests can fail before planning,
+  while JSON-base64 bodies can reach planning and be marked non-replayable.
+- Step 18 can reuse the Step 15 request-id observations and Step 16 fallback
+  providers to assert aborts/timeouts stop later attempts.
+- Step 19 remains ready, but redaction assertions should inspect gateway
+  observations added in Steps 14-16 for request ids, providers, and target
+  headers.
 
 ### 17. Add Buffering Limit Tests
 
