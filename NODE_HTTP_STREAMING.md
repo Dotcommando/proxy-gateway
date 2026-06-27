@@ -360,7 +360,7 @@ Next-step reassessment:
 
 ### Step 4 - Green: stream Web Response to ServerResponse
 
-Status: pending
+Status: completed
 
 Scope:
 
@@ -383,6 +383,35 @@ Verify:
 npm test -- node-http-handler
 npm test -- inbound-adapter-contract
 ```
+
+Verify result:
+
+```txt
+npm test -- node-http-handler
+Test Suites: 2 passed, 2 total
+Tests: 19 passed, 19 total
+
+npm test -- inbound-adapter-contract
+Test Suites: 1 passed, 1 total
+Tests: 4 passed, 4 total
+
+npm run typecheck
+tsc --noEmit passed
+```
+
+Implemented:
+
+- Replaced `response.arrayBuffer()` in `src/adapters/inbound/node-http-handler.ts`.
+- `Response.body === null` now ends the Node response without body materialization.
+- Streaming Web response bodies are read with `getReader()` and written to `ServerResponse` chunk-by-chunk.
+- Node backpressure is respected by waiting for `drain` when `serverResponse.write()` returns `false`.
+- Response stream/write errors destroy the Node response instead of appending an internal error body after streaming has started.
+
+Next-step reassessment:
+
+- Step 5 is still clear, small, and testable: add a focused Red test for oversized JSON service envelope reads.
+- Step 6 remains the matching Green implementation in `src/app/envelopes`, not in the Node adapter.
+- Step 7 remains valid but should wait until request/response streaming and bounded envelope reads are settled, because abort propagation depends on the final stream ownership shape.
 
 ### Step 5 - Red: bound JSON service envelope reads in app/envelopes
 

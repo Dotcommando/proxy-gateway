@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 
@@ -130,7 +131,36 @@ async function writeResponse(serverResponse: ServerResponse, response: Response)
     serverResponse.setHeader(name, value);
   });
 
-  serverResponse.end(Buffer.from(await response.arrayBuffer()));
+  if (response.body === null) {
+    serverResponse.end();
+
+    return;
+  }
+
+  const reader = response.body.getReader();
+
+  try {
+    while (true) {
+      const next = await reader.read();
+
+      if (next.done) {
+        serverResponse.end();
+
+        return;
+      }
+      if (!serverResponse.write(next.value)) {
+        await once(serverResponse, 'drain');
+      }
+    }
+  } catch (error) {
+    serverResponse.destroy(toError(error));
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error('Node HTTP response streaming failed.');
 }
 
 function writeInternalError(serverResponse: ServerResponse): void {
