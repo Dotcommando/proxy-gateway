@@ -139,7 +139,7 @@ The final implementation should avoid long fixed sleeps. Prefer a small `Promise
 
 ### Reproduction Test B - outbound response waits for full Web Response body
 
-Status: pending
+Status: completed (red)
 
 Purpose:
 
@@ -315,7 +315,7 @@ Next-step reassessment:
 
 ### Step 3 - Red: add outbound streaming reproduction test
 
-Status: pending
+Status: completed (red)
 
 Scope:
 
@@ -336,6 +336,27 @@ Verify:
 ```sh
 npm test -- node-http-handler
 ```
+
+Red result:
+
+```txt
+FAIL tests/node-http-handler.test.ts
+createNodeHttpHandler › streams response chunks to the Node client before the Web Response body closes
+Rejected to value: [Error: First response chunk was not streamed before body close.]
+```
+
+Implemented:
+
+- Added a focused low-level `node:http` test in `tests/node-http-handler.test.ts`.
+- The fake gateway returns a `Response` backed by a controlled `ReadableStream<Uint8Array>`.
+- The first chunk is enqueued immediately, the second chunk is held behind a deferred promise, and the client expects to observe the first chunk before the Web response body closes.
+- Current implementation fails because `writeResponse()` waits for `response.arrayBuffer()` before writing to `ServerResponse`.
+
+Next-step reassessment:
+
+- Step 4 is still clear, small, and testable: replace `response.arrayBuffer()` with chunked `ServerResponse.write()` handling.
+- Step 5 remains separate app-layer work for bounded JSON envelope reads and should not be mixed into the response streaming change.
+- Step 6 remains paired with Step 5 and should only start after Step 5 has a focused Red test.
 
 ### Step 4 - Green: stream Web Response to ServerResponse
 

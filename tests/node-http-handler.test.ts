@@ -64,6 +64,61 @@ describe('createNodeHttpHandler', () => {
     }
   });
 
+  it('streams response chunks to the Node client before the Web Response body closes', async () => {
+    const releaseSecondChunk = createDeferred<void>();
+    const firstChunkReceived = createDeferred<string>();
+    const responseReceived = createDeferred<string>();
+    const encoder = new TextEncoder();
+    const server = createServer(createNodeHttpHandler({
+      handle: async () => new Response(new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode('chunk-1'));
+          await releaseSecondChunk.promise;
+          controller.enqueue(encoder.encode('chunk-2'));
+          controller.close();
+        },
+      })),
+    }));
+
+    await listen(server);
+
+    const address = readAddressInfo(server);
+    const chunks: string[] = [];
+    const request = createHttpRequest({
+      host: '127.0.0.1',
+      method: 'GET',
+      path: '/proxy',
+      port: address.port,
+    }, (response) => {
+      response.on('data', (chunk: unknown) => {
+        chunks.push(readResponseChunkText(chunk));
+
+        if (chunks.join('').includes('chunk-1')) {
+          firstChunkReceived.resolve(chunks.join(''));
+        }
+      });
+      response.once('end', () => {
+        responseReceived.resolve(chunks.join(''));
+      });
+      response.once('error', responseReceived.reject);
+    });
+
+    request.once('error', responseReceived.reject);
+
+    try {
+      request.end();
+
+      await expect(
+        withTimeout(firstChunkReceived.promise, 100, 'First response chunk was not streamed before body close.'),
+      ).resolves.toContain('chunk-1');
+    } finally {
+      releaseSecondChunk.resolve(undefined);
+      await withTimeout(responseReceived.promise, 1_000, 'Node HTTP response was not received during cleanup.')
+        .catch(() => undefined);
+      await close(server);
+    }
+  });
+
   it('converts Node request URL method headers and raw body into a Web Request', async () => {
     let observedUrl = '';
     let observedMethod = '';
@@ -168,6 +223,20 @@ function readAddressInfo(server: Server): AddressInfo {
 
 function isAddressInfo(value: string | AddressInfo | null): value is AddressInfo {
   return typeof value === 'object' && value !== null;
+}
+
+function readResponseChunkText(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf8');
+  }
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value).toString('utf8');
+  }
+
+  throw new TypeError('Unsupported response chunk.');
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
