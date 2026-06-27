@@ -67,3 +67,7 @@ lerna-debug.log*
 
 # e2e test results
 **/test-results
+
+# LLM instructions
+**/gpt-*.md
+**/gpt-*.MD
