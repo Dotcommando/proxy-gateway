@@ -2,13 +2,13 @@
 
 Provider-agnostic execution gateway for `@echospecter/proxy-fetch`.
 
-`@echospecter/proxy-gateway` receives `proxy-fetch.v1` service requests, applies routing and safety policy, executes the target request through a selected provider adapter, and returns a `proxy-fetch.v1` response envelope that `@echospecter/proxy-fetch` can reconstruct as a native `Response`.
+`@echospecter/proxy-gateway` receives `proxy-fetch.v1` service requests, applies routing and safety policy, acquires a route from a selected provider adapter, executes the target request through a target transport, and returns a `proxy-fetch.v1` response envelope that `@echospecter/proxy-fetch` can reconstruct as a native `Response`.
 
 It is intended for applications that want a Fetch-like client API while centralizing proxy credentials, routing policy, retries, fallback, target access controls, and observability on the server side.
 
 ## Status
 
-`0.1.x` is the first public line. The package focuses on the provider-agnostic gateway core and a thin Node HTTP integration surface. Provider integrations, framework integrations, GeoIP integrations, Tor adapters, probe targets, and config loaders are expected to live in separate packages or user applications.
+`0.2.x` is the current public line. The package focuses on the provider-agnostic gateway core and a thin Node HTTP integration surface. Provider integrations, framework integrations, GeoIP integrations, Tor adapters, probe targets, and config loaders are expected to live in separate packages or user applications.
 
 ## Installation
 
@@ -16,13 +16,12 @@ It is intended for applications that want a Fetch-like client API while centrali
 npm install @echospecter/proxy-gateway
 ```
 
-Install provider adapters separately:
+The core package does not ship provider integrations or a production proxy transport. A working gateway needs:
 
-```sh
-npm install @echospecter/proxy-gateway-provider-bright-data
-npm install @echospecter/proxy-gateway-provider-oxylabs
-npm install @echospecter/proxy-gateway-provider-static-forward-proxy
-```
+- at least one `ProxyProviderAdapter` that acquires a provider-agnostic route;
+- a `TargetTransportPort` that executes the target request through that route.
+
+The Quick Start below uses a minimal direct provider and native `fetch` transport so it can run without third-party provider packages.
 
 ## When to Use It
 
@@ -51,6 +50,7 @@ application code
   -> proxy-gateway
   -> provider adapter
   -> selected route
+  -> target transport
   -> target server
   -> proxy-fetch.v1 response
   -> native Response
@@ -61,72 +61,97 @@ Target HTTP statuses are normal target responses by default. A target `404`, `40
 ## Quick Start
 
 ```ts
-import { createProxyGateway } from '@echospecter/proxy-gateway';
-import { createBrightDataProvider } from '@echospecter/proxy-gateway-provider-bright-data';
-import { createOxylabsProvider } from '@echospecter/proxy-gateway-provider-oxylabs';
+import {
+  createProxyGateway,
+  PROXY_PLAN_KIND,
+  PROXY_ROUTE_KIND,
+  type GatewayBody,
+  type GatewayTargetResponse,
+  type ProxyProviderInstance,
+  type TargetTransportPort,
+} from '@echospecter/proxy-gateway';
+
+function toFetchBody(body: GatewayBody): BodyInit | undefined {
+  if (body.kind === 'none') {
+    return undefined;
+  }
+  if (body.kind === 'text') {
+    return body.text;
+  }
+  if (body.kind === 'bytes') {
+    return new Blob([body.bytes]);
+  }
+
+  throw new Error('This quick-start transport only supports buffered request bodies.');
+}
+
+function toGatewayBody(response: Response): GatewayTargetResponse['body'] {
+  if (response.body === null) {
+    return {
+      kind: 'none',
+      replayability: 'replayable',
+    };
+  }
+
+  return {
+    kind: 'stream',
+    replayability: 'non-replayable',
+    stream: response.body,
+  };
+}
+
+const directProvider: ProxyProviderInstance = {
+  id: 'direct',
+  adapter: {
+    kind: 'direct',
+    getCapabilities: () => ({}),
+    acquire: async (input) => ({
+      id: `${input.requestId}:direct`,
+      providerInstanceId: input.providerInstanceId,
+      providerKind: 'direct',
+      route: {
+        kind: PROXY_ROUTE_KIND.DIRECT,
+      },
+    }),
+  },
+};
+
+const fetchTransport: TargetTransportPort = {
+  supportsRoute: (route) => route.kind === PROXY_ROUTE_KIND.DIRECT,
+  execute: async (input) => {
+    const response = await fetch(input.target.url, {
+      body: toFetchBody(input.target.body),
+      headers: input.target.headers,
+      method: input.target.method,
+      redirect: input.target.fetch.redirect,
+      signal: input.signal,
+    });
+
+    const body = toGatewayBody(response);
+
+    return {
+      body,
+      headers: Array.from(response.headers.entries()),
+      redirected: response.redirected,
+      status: response.status,
+      statusText: response.statusText,
+      type: response.type,
+      url: response.url,
+    };
+  },
+};
 
 const gateway = createProxyGateway({
-  providers: [
-    {
-      id: 'bright-data-gb',
-      adapter: createBrightDataProvider({
-        customer: appConfig.brightData.customer,
-        zone: appConfig.brightData.zone,
-        password: appConfig.brightData.password,
-      }),
-      tags: ['residential', 'gb'],
-      weight: 70,
-    },
-    {
-      id: 'oxylabs-gb',
-      adapter: createOxylabsProvider({
-        username: appConfig.oxylabs.username,
-        password: appConfig.oxylabs.password,
-      }),
-      tags: ['residential', 'gb'],
-      weight: 30,
-    },
-  ],
-
-  pipelines: [
-    {
-      id: 'google-uk-search',
-      priority: 100,
-      when: {
-        host: { type: 'regexp', source: '(^|\\.)google\\.com$', flags: 'i' },
+  providers: [directProvider],
+  transport: fetchTransport,
+  plan: {
+    kind: PROXY_PLAN_KIND.FALLBACK,
+    attempts: [
+      {
+        provider: 'direct',
       },
-      require: [
-        {
-          use: 'requirements.set',
-          args: {
-            networkTypes: ['residential'],
-            geo: { country: 'GB', strictness: 'required' },
-          },
-        },
-      ],
-      plan: [
-        {
-          use: 'plan.fallback',
-          args: {
-            attempts: [
-              {
-                provider: 'bright-data-gb',
-                maxAttempts: 3,
-                timeoutMs: 15_000,
-                retryOn: ['proxy-timeout', 'target-network-error', 'http-403', 'http-429'],
-              },
-              {
-                provider: 'oxylabs-gb',
-                maxAttempts: 2,
-                timeoutMs: 15_000,
-                retryOn: ['proxy-timeout', 'target-network-error'],
-              },
-            ],
-          },
-        },
-      ],
-    },
-  ],
+    ],
+  },
 });
 
 export async function handleProxyFetchRequest(request: Request): Promise<Response> {
@@ -134,7 +159,7 @@ export async function handleProxyFetchRequest(request: Request): Promise<Respons
 }
 ```
 
-Your application is responsible for loading secrets and configuration. Pass ready-to-use provider adapters and plain JavaScript objects to the gateway.
+Your application is responsible for loading secrets and configuration. Pass ready-to-use provider adapters, transports, and plain JavaScript objects to the gateway.
 
 ## Public API
 
@@ -355,10 +380,13 @@ const defaultRoute: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequireme
   },
 };
 
+const transport = fetchTransport; // Reuse or replace the TargetTransportPort from the Quick Start.
+
 const gateway = createProxyGateway({
   providers,
   routes,
   defaultRoute,
+  transport,
 });
 ```
 
@@ -480,8 +508,11 @@ const stickyIdentity = {
   ],
 };
 
+const transport = fetchTransport; // Reuse or replace the TargetTransportPort from the Quick Start.
+
 const gateway = createProxyGateway({
   providers,
+  transport,
   routes: [
     {
       id: 'sticky-search',
@@ -675,6 +706,8 @@ createServer(handler).listen(3000);
 
 The core package does not export Express, Fastify, or NestJS wrappers. Use `ProxyGateway.handle(request)` directly from your application, or use separate framework adapter packages when they are available. Framework routes must preserve the raw `proxy-fetch.v1` request body bytes before calling the gateway.
 
+Provider adapter packages should stay framework-agnostic too. For example, a Bright Data adapter package should expose a plain `ProxyProviderAdapter`; a separate NestJS package can wrap configuration, dependency injection, lifecycle hooks, and module wiring around that universal adapter.
+
 ## Configuration
 
 The gateway accepts plain JavaScript objects. It does not load `.env`, YAML, JSON5, TOML, secret stores, or process-level configuration by itself.
@@ -688,6 +721,7 @@ const gateway = createProxyGateway({
   providers: createProviders(config.providers),
   pipelines: config.proxyGateway.pipelines,
   targetAccess: config.proxyGateway.targetAccess,
+  transport: createTargetTransport(config.transport),
 });
 ```
 
