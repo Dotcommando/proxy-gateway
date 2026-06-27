@@ -25,15 +25,19 @@ Rules:
 - `.npmrc.local-registry` is generated local state and must stay ignored.
 - The consumer should install with `--package-lock=false` so Verdaccio tarball URLs are not committed.
 - The existing consumer should depend on `@echospecter/proxy-gateway` through the `local` dist-tag produced by `publish-local.sh`, not a hard-coded package version.
+- Only `@echospecter/proxy-gateway` is locally published in this lab; `@echospecter/proxy-fetch` should resolve from npmjs through Verdaccio unless a task explicitly tests a local proxy-fetch build.
+- Do not commit developer-specific absolute paths, and do not import runtime test files from a local proxy-fetch checkout; copy public fixture data into this repository when needed.
 - Keep the consumer on the minimum supported Node line unless explicitly testing a version matrix.
 - Root lint may cover consumer JS test files, but consumer TS type contract files compile through the consumer `test:types` script.
 - Existing and new consumer scenarios should run through `node:test` with `node:assert/strict`; shell scripts and Docker Compose should only orchestrate publishing, installing, and test command execution.
 - Microservice lab packages live under `e2e/local-registry/microservices/consumer`, `gateway`, and `mock-provider`; Docker Compose service names may still use `micro-consumer`, `micro-gateway`, and `micro-provider`.
 - The microservice compose lab must use a dedicated project name, distinct `micro-*` volumes, and no fixed `container_name` values so it can coexist with the existing local-registry lab.
 - The microservice consumer should use Node test discovery in its `test:e2e` script so npm can append focused filters such as `--test-name-pattern health`.
+- Keep the microservice lab outside default `npm test` and `prepublishOnly`; it is a Docker/live-network release gate run explicitly with `npm run test:e2e:microservices`.
 - Verdaccio config must list the `@echospecter/proxy-fetch` npmjs uplink rule before the broader local-only `@echospecter/*` package rule.
 - Focused `micro-consumer` compose runs that require installed packages should execute `npm install --package-lock=false --no-audit --no-fund` before `npm run test:e2e -- --test-name-pattern ...`.
 - Focused `micro-consumer` compose runs that exercise the gateway data path should start `micro-provider` and `micro-gateway` first; the full runner owns clean setup, but focused commands may assume those services are already running.
+- Focused microservice runs after gateway package internals change must reset Verdaccio and republish `@echospecter/proxy-gateway` before starting `micro-gateway`.
 - `reset-registry.sh` must reset both the existing local-registry compose lab and the microservice compose lab volumes.
 - The mock-provider deterministic API is `POST /execute` plus `GET /observations` and `POST /observations/reset`; deterministic tests should use it before adding live public endpoint coverage.
 - Focused Node test patterns must be specific enough to avoid running unrelated scenario files in parallel.

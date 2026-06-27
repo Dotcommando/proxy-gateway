@@ -48,11 +48,21 @@ This runner:
   `@echospecter/proxy-fetch`;
 - always runs `docker compose ... down -v` on exit.
 
+The lab locally publishes only `@echospecter/proxy-gateway`.
+`@echospecter/proxy-fetch` is installed from npmjs through Verdaccio's npmjs
+uplink, so the containers still use one registry URL while the gateway package
+comes from the local publish.
+
 The microservice suite includes deterministic gateway/provider scenarios and a
 small live public endpoint set. The live tests are not the deterministic
 compatibility source of truth; they may skip strict assertions for temporary
 upstream statuses `429`, `502`, `503`, and `504` after confirming that the
 gateway/provider path was exercised.
+
+Because this suite uses Docker and live public network endpoints, keep it out of
+`npm test` and `prepublishOnly`. Run it explicitly before release or after
+changes to package publishing, wire formats, gateway routing, retry/fallback,
+timeouts, buffering, redaction, or proxy-fetch compatibility.
 
 For focused microservice debugging, start the services and run a specific test
 pattern:
@@ -90,3 +100,16 @@ tarball for the same package version.
 ## Notes
 
 The Verdaccio config allows anonymous publish only for local development. Do not expose this registry outside your machine.
+
+Do not commit machine-local proxy-fetch checkout paths in docs, scripts, or
+fixtures. The live endpoint scenarios were copied from the public proxy-fetch
+test source:
+`https://github.com/Dotcommando/proxy-fetch/blob/master/tests/live/live-endpoints.live-e2e.cjs`.
+
+Open follow-ups after the initial microservice lab:
+
+- decide whether `@echospecter/proxy-fetch` should stay on a semver range or be
+  pinned to an exact npm version for release validation;
+- decide whether to add a Node version matrix, including a Node 26 variant for
+  proxy-fetch body compatibility;
+- decide whether live endpoint logs should print by default or only on failure.
