@@ -4,7 +4,7 @@ Provider-agnostic execution gateway for `@echospecter/proxy-fetch`.
 
 `@echospecter/proxy-gateway` receives `proxy-fetch.v1` service requests, applies routing and safety policy, acquires a route from a selected provider adapter, executes the target request through a target transport, and returns a `proxy-fetch.v1` response envelope that `@echospecter/proxy-fetch` can reconstruct as a native `Response`.
 
-It is intended for applications that want a Fetch-like client API while centralizing proxy credentials, routing policy, retries, fallback, target access controls, and observability on the server side.
+It is intended for applications that want a Fetch-like client API while centralizing proxy credentials, routing policy, retries, fallback, and target access controls on the server side.
 
 ## Status
 
@@ -60,16 +60,28 @@ Target HTTP statuses are normal target responses by default. A target `404`, `40
 
 ## Quick Start
 
+The safest first transport is a direct smoke transport that does not automatically follow redirects. It returns target `3xx` responses to the client as normal target responses. If your application needs redirect following, use the guarded variant below and validate every `Location` through `finalUrlGuard` before making the next request.
+
 ```ts
 import {
   createProxyGateway,
   PROXY_PLAN_KIND,
   PROXY_ROUTE_KIND,
+  TARGET_ACCESS_RESULT_KIND,
   type GatewayBody,
   type GatewayTargetResponse,
   type ProxyProviderInstance,
+  type TargetTransportExecuteInput,
   type TargetTransportPort,
 } from '@echospecter/proxy-gateway';
+
+const MAX_QUICK_START_REDIRECTS = 10;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const REQUEST_BODY_HEADER_NAMES = new Set([
+  'content-length',
+  'content-type',
+  'transfer-encoding',
+]);
 
 function toFetchBody(body: GatewayBody): BodyInit | undefined {
   if (body.kind === 'none') {
@@ -79,7 +91,7 @@ function toFetchBody(body: GatewayBody): BodyInit | undefined {
     return body.text;
   }
   if (body.kind === 'bytes') {
-    return new Blob([body.bytes]);
+    return new Uint8Array(body.bytes);
   }
 
   throw new Error('This quick-start transport only supports buffered request bodies.');
@@ -100,6 +112,21 @@ function toGatewayBody(response: Response): GatewayTargetResponse['body'] {
   };
 }
 
+function toGatewayTargetResponse(
+  response: Response,
+  redirected = response.redirected,
+): GatewayTargetResponse {
+  return {
+    body: toGatewayBody(response),
+    headers: Array.from(response.headers.entries()),
+    redirected,
+    status: response.status,
+    statusText: response.statusText,
+    type: response.type,
+    url: response.url,
+  };
+}
+
 const directProvider: ProxyProviderInstance = {
   id: 'direct',
   adapter: {
@@ -116,34 +143,138 @@ const directProvider: ProxyProviderInstance = {
   },
 };
 
-const fetchTransport: TargetTransportPort = {
+const manualRedirectDirectTransport: TargetTransportPort = {
   supportsRoute: (route) => route.kind === PROXY_ROUTE_KIND.DIRECT,
   execute: async (input) => {
     const response = await fetch(input.target.url, {
       body: toFetchBody(input.target.body),
       headers: input.target.headers,
       method: input.target.method,
-      redirect: input.target.fetch.redirect,
+      redirect: 'manual',
       signal: input.signal,
     });
 
-    const body = toGatewayBody(response);
-
-    return {
-      body,
-      headers: Array.from(response.headers.entries()),
-      redirected: response.redirected,
-      status: response.status,
-      statusText: response.statusText,
-      type: response.type,
-      url: response.url,
-    };
+    return toGatewayTargetResponse(response);
   },
 };
 
+const guardedRedirectFollowingDirectTransport: TargetTransportPort = {
+  supportsRoute: (route) => route.kind === PROXY_ROUTE_KIND.DIRECT,
+  execute: async (input) => executeWithGuardedRedirectFollowing(input),
+};
+
+async function executeWithGuardedRedirectFollowing(
+  input: TargetTransportExecuteInput,
+): Promise<GatewayTargetResponse> {
+  const originalBody = toFetchBody(input.target.body);
+  let body = isBodylessMethod(input.target.method) ? undefined : originalBody;
+  let headers = input.target.headers;
+  let method = input.target.method;
+  let url = input.target.url;
+
+  for (let redirectCount = 0; redirectCount <= MAX_QUICK_START_REDIRECTS; redirectCount += 1) {
+    const response = await fetch(url, {
+      body,
+      headers,
+      method,
+      redirect: 'manual',
+      signal: input.signal,
+    });
+    const redirectUrl = readRedirectUrl(response, url);
+
+    if (redirectUrl === undefined) {
+      return toGatewayTargetResponse(response, redirectCount > 0);
+    }
+    if (redirectCount === MAX_QUICK_START_REDIRECTS) {
+      await response.body?.cancel();
+      throw new Error('Too many target redirects.');
+    }
+
+    const guardResult = input.finalUrlGuard?.check({
+      baseUrl: url,
+      url: redirectUrl,
+    });
+
+    if (guardResult?.kind === TARGET_ACCESS_RESULT_KIND.REJECTED) {
+      await response.body?.cancel();
+      throw new Error(guardResult.message);
+    }
+
+    await response.body?.cancel();
+
+    const nextRequest = createRedirectRequest({
+      body: originalBody,
+      headers,
+      method,
+      status: response.status,
+    });
+
+    body = nextRequest.body;
+    headers = nextRequest.headers;
+    method = nextRequest.method;
+    url = redirectUrl;
+  }
+
+  throw new Error('Too many target redirects.');
+}
+
+function readRedirectUrl(response: Response, baseUrl: string): string | undefined {
+  if (!REDIRECT_STATUSES.has(response.status)) {
+    return undefined;
+  }
+
+  const location = response.headers.get('location');
+
+  return location === null ? undefined : new URL(location, baseUrl).toString();
+}
+
+function createRedirectRequest(input: {
+  body: BodyInit | undefined;
+  headers: Array<[string, string]>;
+  method: string;
+  status: number;
+}): {
+  body: BodyInit | undefined;
+  headers: Array<[string, string]>;
+  method: string;
+} {
+  const method = shouldRewriteRedirectToGet(input.status, input.method)
+    ? 'GET'
+    : input.method;
+
+  return {
+    body: isBodylessMethod(method) ? undefined : input.body,
+    headers: isBodylessMethod(method)
+      ? removeRequestBodyHeaders(input.headers)
+      : input.headers,
+    method,
+  };
+}
+
+function shouldRewriteRedirectToGet(status: number, method: string): boolean {
+  const normalizedMethod = method.toUpperCase();
+
+  return (
+    status === 303
+    || ((status === 301 || status === 302) && normalizedMethod === 'POST')
+  );
+}
+
+function isBodylessMethod(method: string): boolean {
+  const normalizedMethod = method.toUpperCase();
+
+  return normalizedMethod === 'GET' || normalizedMethod === 'HEAD';
+}
+
+function removeRequestBodyHeaders(headers: Array<[string, string]>): Array<[string, string]> {
+  return headers.filter(([name]) => !REQUEST_BODY_HEADER_NAMES.has(name.toLowerCase()));
+}
+
 const gateway = createProxyGateway({
   providers: [directProvider],
-  transport: fetchTransport,
+  transport: manualRedirectDirectTransport,
+  // To follow redirects, replace the transport with:
+  // transport: guardedRedirectFollowingDirectTransport,
   plan: {
     kind: PROXY_PLAN_KIND.FALLBACK,
     attempts: [
@@ -159,7 +290,32 @@ export async function handleProxyFetchRequest(request: Request): Promise<Respons
 }
 ```
 
+The guarded redirect-following transport fails closed when `finalUrlGuard` rejects a redirect target. It is still a minimal direct smoke transport, not a production proxy transport. Production transports should implement the route protocols they claim to support, preserve proxy DNS behavior, enforce their own redirect limits, and call `finalUrlGuard` before every redirected request.
+
 Your application is responsible for loading secrets and configuration. Pass ready-to-use provider adapters, transports, and plain JavaScript objects to the gateway.
+
+To run the gateway with plain Node HTTP:
+
+```ts
+import { createServer } from 'node:http';
+import { createNodeHttpHandler } from '@echospecter/proxy-gateway';
+
+createServer(createNodeHttpHandler(gateway)).listen(3000);
+```
+
+Then point `@echospecter/proxy-fetch` at that service endpoint:
+
+```ts
+import { createProxyFetch } from '@echospecter/proxy-fetch';
+
+const proxyFetch = createProxyFetch({
+  serviceUrl: 'http://localhost:3000/',
+});
+
+const response = await proxyFetch('https://example.com/');
+
+console.log(response.status);
+```
 
 ## Public API
 
@@ -172,6 +328,7 @@ export interface ProxyGatewayOptions {
   providers: ProxyProviderInstance[];
   routes?: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>>;
   defaultRoute?: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>;
+  exitVerifier?: ProxyExitVerifierPort;
   pipelines?: ProxyPipelineConfig[];
   stepRegistry?: ProxyPipelineStepRegistryPort;
   transport?: TargetTransportPort;
@@ -304,17 +461,26 @@ export type ProxyRoute =
 Common route examples:
 
 ```ts
+import {
+  PROXY_DNS_MODE,
+  PROXY_PROTOCOL,
+  PROXY_ROUTE_AUTH_MODE,
+  PROXY_ROUTE_KIND,
+  type DirectRoute,
+  type ForwardProxyRoute,
+} from '@echospecter/proxy-gateway';
+
 const directRoute: DirectRoute = {
-  kind: 'direct',
+  kind: PROXY_ROUTE_KIND.DIRECT,
 };
 
 const socks5hRoute: ForwardProxyRoute = {
-  kind: 'forward-proxy',
-  protocol: 'socks5h',
+  kind: PROXY_ROUTE_KIND.FORWARD_PROXY,
+  protocol: PROXY_PROTOCOL.SOCKS5H,
   host: '127.0.0.1',
   port: 9050,
-  auth: { mode: 'none' },
-  dns: 'proxy',
+  auth: { mode: PROXY_ROUTE_AUTH_MODE.NONE },
+  dns: PROXY_DNS_MODE.PROXY,
 };
 ```
 
@@ -328,7 +494,10 @@ Use `routes` when target requests should select different configured plans by ho
 import {
   createProxyGateway,
   PROXY_GEO_STRICTNESS,
+  PROXY_NETWORK_TYPE,
   PROXY_PLAN_KIND,
+  RETRY_CONDITION,
+  STRING_MATCHER_KIND,
   type ProxyDefaultRouteConfig,
   type ProxyPlanConfig,
   type ProxyRouteConfig,
@@ -340,7 +509,7 @@ const gbRequirements: ProxyRouteRequirements = {
     country: 'GB',
     strictness: PROXY_GEO_STRICTNESS.REQUIRED,
   },
-  networkTypes: ['residential'],
+  networkTypes: [PROXY_NETWORK_TYPE.RESIDENTIAL],
 };
 
 const routes: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>> = [
@@ -348,7 +517,7 @@ const routes: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>> =
     id: 'search-gb',
     priority: 100,
     match: {
-      host: { type: 'suffix', value: 'google.com' },
+      host: { type: STRING_MATCHER_KIND.SUFFIX, value: 'google.com' },
       method: ['GET', 'POST'],
     },
     requirements: gbRequirements,
@@ -359,13 +528,20 @@ const routes: Array<ProxyRouteConfig<ProxyPlanConfig, ProxyRouteRequirements>> =
           provider: 'primary-residential-gb',
           maxAttempts: 2,
           timeoutMs: 15_000,
-          retryOn: ['proxy-timeout', 'target-network-error', 'http-429'],
+          retryOn: [
+            RETRY_CONDITION.PROXY_TIMEOUT,
+            RETRY_CONDITION.TARGET_NETWORK_ERROR,
+            RETRY_CONDITION.HTTP_429,
+          ],
         },
         {
           provider: 'fallback-residential-gb',
           maxAttempts: 1,
           timeoutMs: 20_000,
-          retryOn: ['proxy-timeout', 'target-network-error'],
+          retryOn: [
+            RETRY_CONDITION.PROXY_TIMEOUT,
+            RETRY_CONDITION.TARGET_NETWORK_ERROR,
+          ],
         },
       ],
     },
@@ -380,7 +556,7 @@ const defaultRoute: ProxyDefaultRouteConfig<ProxyPlanConfig, ProxyRouteRequireme
   },
 };
 
-const transport = fetchTransport; // Reuse or replace the TargetTransportPort from the Quick Start.
+const transport = manualRedirectDirectTransport; // Reuse or replace the TargetTransportPort from the Quick Start.
 
 const gateway = createProxyGateway({
   providers,
@@ -432,14 +608,20 @@ Built-in step names are available through `PIPELINE_STEP_TYPE` and can also be r
 Example:
 
 ```ts
-import { PIPELINE_STEP_TYPE, PROXY_GEO_STRICTNESS } from '@echospecter/proxy-gateway';
+import {
+  PIPELINE_STEP_TYPE,
+  PROXY_GEO_STRICTNESS,
+  RETRY_CONDITION,
+  STRING_MATCHER_KIND,
+  type ProxyPipelineConfig,
+} from '@echospecter/proxy-gateway';
 
 const pipelines: ProxyPipelineConfig[] = [
   {
     id: 'serp-gb',
     priority: 100,
     when: {
-      host: { type: 'suffix', value: 'google.com' },
+      host: { type: STRING_MATCHER_KIND.SUFFIX, value: 'google.com' },
     },
     require: [
       {
@@ -469,7 +651,11 @@ const pipelines: ProxyPipelineConfig[] = [
             {
               maxAttempts: 2,
               timeoutMs: 15_000,
-              retryOn: ['proxy-timeout', 'target-network-error', 'http-429'],
+              retryOn: [
+                RETRY_CONDITION.PROXY_TIMEOUT,
+                RETRY_CONDITION.TARGET_NETWORK_ERROR,
+                RETRY_CONDITION.HTTP_429,
+              ],
             },
           ],
         },
@@ -494,6 +680,7 @@ import {
   PROXY_PLAN_KIND,
   PROXY_IDENTITY_ISOLATION_SCOPE,
   PROXY_IDENTITY_ROTATION,
+  STRING_MATCHER_KIND,
 } from '@echospecter/proxy-gateway';
 
 const stickyIdentity = {
@@ -508,7 +695,7 @@ const stickyIdentity = {
   ],
 };
 
-const transport = fetchTransport; // Reuse or replace the TargetTransportPort from the Quick Start.
+const transport = manualRedirectDirectTransport; // Reuse or replace the TargetTransportPort from the Quick Start.
 
 const gateway = createProxyGateway({
   providers,
@@ -516,7 +703,7 @@ const gateway = createProxyGateway({
   routes: [
     {
       id: 'sticky-search',
-      match: { host: { type: 'suffix', value: 'google.com' } },
+      match: { host: { type: STRING_MATCHER_KIND.SUFFIX, value: 'google.com' } },
       requirements: {
         identity: stickyIdentity,
       },
@@ -546,11 +733,13 @@ Route and pipeline matching can use:
 For JSON-friendly configuration, use declarative regexp objects:
 
 ```ts
-{
-  type: 'regexp',
+import { STRING_MATCHER_KIND } from '@echospecter/proxy-gateway';
+
+const matcher = {
+  type: STRING_MATCHER_KIND.REGEXP,
   source: '(^|\\.)google\\.com$',
   flags: 'i',
-}
+};
 ```
 
 Priority decides conflicts:
@@ -606,18 +795,23 @@ Safe defaults are conservative:
 Example attempt policy:
 
 ```ts
-{
+import {
+  RETRY_CONDITION,
+  type ProxyPlanAttemptConfig,
+} from '@echospecter/proxy-gateway';
+
+const attempt: ProxyPlanAttemptConfig = {
   provider: 'primary-residential-gb',
   maxAttempts: 3,
   timeoutMs: 15_000,
   retryOn: [
-    'proxy-timeout',
-    'proxy-connection-error',
-    'target-network-error',
-    'http-403',
-    'http-429',
+    RETRY_CONDITION.PROXY_TIMEOUT,
+    RETRY_CONDITION.PROXY_CONNECTION_ERROR,
+    RETRY_CONDITION.TARGET_NETWORK_ERROR,
+    RETRY_CONDITION.HTTP_403,
+    RETRY_CONDITION.HTTP_429,
   ],
-}
+};
 ```
 
 ## Timeouts and Abort
@@ -635,15 +829,15 @@ The gateway is expected to guard target access before outbound execution.
 
 ```ts
 export interface TargetAccessPolicy {
-  allowedSchemes: Array<'http:' | 'https:'>;
+  allowedHosts?: StringMatcher[];
   allowLocalhost?: boolean;
-  allowPrivateIps?: boolean;
-  allowLinkLocalIps?: boolean;
   allowOnionHosts?: boolean;
-  onionRequiresNetworkType?: PROXY_NETWORK_TYPE.TOR;
-  allowedHosts?: HostMatcher[];
-  deniedHosts?: HostMatcher[];
+  allowLinkLocalIps?: boolean;
+  allowPrivateIps?: boolean;
+  allowedSchemes?: string[];
   deniedCidrs?: string[];
+  deniedHosts?: StringMatcher[];
+  onionRequiresNetworkType?: PROXY_NETWORK_TYPE.TOR;
 }
 ```
 
@@ -657,11 +851,10 @@ Logs, telemetry events, service errors, and diagnostics should not expose secret
 
 ```ts
 export interface RedactionPolicy {
-  redactHeaders: string[];
-  redactQueryParams: string[];
-  redactProviderCredentials: boolean;
-  redactCookies: boolean;
-  replacement: string;
+  headerNames?: readonly string[];
+  metadataKeyNames?: readonly string[];
+  queryParamNames?: readonly string[];
+  replacement?: string;
 }
 ```
 
@@ -676,14 +869,22 @@ Tor is represented by ordinary provider adapters and route capabilities. There i
 Tor-like providers should generally return `socks5h` routes with proxy DNS:
 
 ```ts
-{
-  kind: 'forward-proxy',
-  protocol: 'socks5h',
+import {
+  PROXY_DNS_MODE,
+  PROXY_PROTOCOL,
+  PROXY_ROUTE_AUTH_MODE,
+  PROXY_ROUTE_KIND,
+  type ForwardProxyRoute,
+} from '@echospecter/proxy-gateway';
+
+const torLikeRoute: ForwardProxyRoute = {
+  kind: PROXY_ROUTE_KIND.FORWARD_PROXY,
+  protocol: PROXY_PROTOCOL.SOCKS5H,
   host: '127.0.0.1',
   port: 9050,
-  auth: { mode: 'none' },
-  dns: 'proxy',
-}
+  auth: { mode: PROXY_ROUTE_AUTH_MODE.NONE },
+  dns: PROXY_DNS_MODE.PROXY,
+};
 ```
 
 For country-sensitive Tor-like routes, combine policy requirements with exit verification through an external verifier port or companion package.
